@@ -119,6 +119,12 @@ export async function generateImageDirect(params, mode = 'generate') {
     endpoint += '/images/generations';
   }
 
+  // For API mode, update the model name to use the actual model name
+  // For server/CLI mode, use the internal ID
+  if (modelConfig && modelConfig.exec_mode === 'api' && !isFormData) {
+    requestBody.model = modelConfig.name;
+  }
+
   // Build headers - add API key if configured
   let headers;
   if (isFormData) {
@@ -259,6 +265,12 @@ export async function generateImage(params, mode = 'generate') {
     endpoint += '/images/variations';
   } else {
     endpoint += '/images/generations';
+  }
+
+  // For API mode, update the model name to use the actual model name
+  // For server/CLI mode, use the internal ID
+  if (modelConfig && modelConfig.exec_mode === 'api' && !isFormData) {
+    requestBody.model = modelConfig.name;
   }
 
   // Build headers - add API key if configured

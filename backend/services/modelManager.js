@@ -204,13 +204,20 @@ export class ModelManager {
           this.logger.warn(`Model "${modelId}" missing name, skipping`);
           continue;
         }
-        if (!modelConfig.command) {
-          this.logger.warn(`Model "${modelId}" missing command, skipping`);
-          continue;
-        }
+        // Determine exec_mode first
         if (!modelConfig.exec_mode || !Object.values(ExecMode).includes(modelConfig.exec_mode)) {
           this.logger.warn(`Model "${modelId}" has invalid exec_mode, defaulting to 'server'`);
           modelConfig.exec_mode = ExecMode.SERVER;
+        }
+        // Command is required for SERVER and CLI modes, but not for API mode
+        if ((modelConfig.exec_mode === ExecMode.SERVER || modelConfig.exec_mode === ExecMode.CLI) && !modelConfig.command) {
+          this.logger.warn(`Model "${modelId}" missing command (required for ${modelConfig.exec_mode} mode), skipping`);
+          continue;
+        }
+        // API key is required for API mode
+        if (modelConfig.exec_mode === ExecMode.API && !modelConfig.api_key) {
+          this.logger.warn(`Model "${modelId}" missing api_key (required for API mode), skipping`);
+          continue;
         }
         if (!modelConfig.mode || !Object.values(LoadMode).includes(modelConfig.mode)) {
           this.logger.warn(`Model "${modelId}" has invalid mode, defaulting to 'on_demand'`);

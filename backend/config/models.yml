@@ -214,14 +214,14 @@ models:
   # ==================== External API Models ====================
   # Example configuration for using external OpenAI-compatible APIs
   # No local server is started - requests go directly to the external API
-  openai-api:
-    name: "OpenAI API (DALL-E)"
-    description: "OpenAI's DALL-E API for image generation (external API)"
+  flux2:
+    name: "black-forest-labs/FLUX.2-pro"
+    description: "External API"
     command: null  # No command needed for API mode
     args: []
-    api: "https://api.openai.com/v1"  # External API endpoint
-    mode: "on_demand"
-    exec_mode: "api"  # API mode - no local server
+    api: "https://api.together.xyz/v1"  # External API endpoint
+    api_key: "tgp_v1_EcmZ5OOBJ2NvG-58oRJVYLI4qdrtHLtXSAjBzF7EF4Q"
+    mode: "on_demand"  # Load strategy - always on demand for API mode
+    exec_mode: "api"  # Execution mode - no local server
     model_type: "text-to-image"
     default_size: "1024x1024"
-    # Note: You'll need to set OPENAI_API_KEY environment variable

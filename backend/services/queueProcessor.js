@@ -387,8 +387,14 @@ async function processHTTPGeneration(job, modelConfig, params) {
     promptString = `${finalPrompt}<negative_prompt>${negativePrompt}</negative_prompt>`;
   }
 
+  // For API mode, use the actual model name for external API
+  // For server mode, use the internal ID
+  const modelName = modelConfig.exec_mode === ExecMode.API
+    ? modelConfig.name
+    : modelConfig.id;
+
   const requestBody = {
-    model: modelConfig.id,
+    model: modelName,
     prompt: promptString,
     n: params.n || 1,
     size: params.size || '512x512',
