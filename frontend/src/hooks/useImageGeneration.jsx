@@ -5,6 +5,65 @@ export function useImageGeneration() {
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
 
+  // Add job to queue (async)
+  const generateQueued = useCallback(async (params) => {
+    setIsLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const endpoint = params.mode === 'edit'
+        ? '/api/queue/edit'
+        : params.mode === 'variation'
+        ? '/api/queue/variation'
+        : '/api/queue/generate';
+
+      let body;
+      let headers = {};
+
+      if ((params.mode === 'edit' || params.mode === 'variation') && params.image) {
+        const formData = new FormData();
+        formData.append('image', params.image);
+        formData.append('model', params.model || 'sd-cpp-local');
+        formData.append('prompt', params.prompt);
+        formData.append('n', params.n || 1);
+        formData.append('size', params.size || '512x512');
+        if (params.negative_prompt) {
+          formData.append('negative_prompt', params.negative_prompt);
+        }
+        if (params.quality) formData.append('quality', params.quality);
+        if (params.style) formData.append('style', params.style);
+        if (params.seed) formData.append('seed', params.seed);
+
+        body = formData;
+      } else {
+        headers['Content-Type'] = 'application/json';
+        body = JSON.stringify(params);
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      setResult(data);
+      return data;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Synchronous generation (direct, not queued)
   const generate = useCallback(async (params) => {
     setIsLoading(true);
     setError(null);
@@ -63,7 +122,7 @@ export function useImageGeneration() {
     }
   }, []);
 
-  return { generate, isLoading, error, result };
+  return { generate, generateQueued, isLoading, error, result };
 }
 
 export function useGenerations() {

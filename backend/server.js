@@ -7,6 +7,8 @@ import { dirname } from 'path';
 import { initializeDatabase, getImagesDir } from './db/database.js';
 import { generateImage } from './services/imageService.js';
 import { getAllGenerations, getGenerationById, getImageById, getImagesByGenerationId } from './db/queries.js';
+import { addToQueue, getJobs, getJobById, cancelJob, getQueueStats } from './db/queueQueries.js';
+import { startQueueProcessor } from './services/queueProcessor.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -174,6 +176,118 @@ app.delete('/api/generations/:id', async (req, res) => {
   }
 });
 
+// ========== Queue API Endpoints ==========
+
+// Add job to queue (text-to-image)
+app.post('/api/queue/generate', async (req, res) => {
+  try {
+    const job = addToQueue({
+      type: 'generate',
+      model: req.body.model || 'sd-cpp-local',
+      prompt: req.body.prompt,
+      negative_prompt: req.body.negative_prompt,
+      size: req.body.size,
+      n: req.body.n,
+      quality: req.body.quality,
+      style: req.body.style,
+    });
+    res.json({ job_id: job.id, status: job.status });
+  } catch (error) {
+    console.error('Error adding to queue:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add job to queue (image-to-image edit)
+app.post('/api/queue/edit', upload.single('image'), async (req, res) => {
+  try {
+    const job = addToQueue({
+      type: 'edit',
+      model: req.body.model || 'sd-cpp-local',
+      prompt: req.body.prompt,
+      negative_prompt: req.body.negative_prompt,
+      size: req.body.size,
+      n: req.body.n,
+      source_image_id: req.body.source_image_id,
+    });
+    res.json({ job_id: job.id, status: job.status });
+  } catch (error) {
+    console.error('Error adding to queue:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add job to queue (variation)
+app.post('/api/queue/variation', upload.single('image'), async (req, res) => {
+  try {
+    const job = addToQueue({
+      type: 'variation',
+      model: req.body.model || 'sd-cpp-local',
+      prompt: req.body.prompt,
+      negative_prompt: req.body.negative_prompt,
+      size: req.body.size,
+      n: req.body.n,
+      source_image_id: req.body.source_image_id,
+    });
+    res.json({ job_id: job.id, status: job.status });
+  } catch (error) {
+    console.error('Error adding to queue:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all jobs in queue
+app.get('/api/queue', async (req, res) => {
+  try {
+    const status = req.query.status || null;
+    const jobs = getJobs(status, 100);
+    const stats = getQueueStats();
+    res.json({ jobs, stats });
+  } catch (error) {
+    console.error('Error fetching queue:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single job
+app.get('/api/queue/:id', async (req, res) => {
+  try {
+    const job = getJobById(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    res.json(job);
+  } catch (error) {
+    console.error('Error fetching job:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cancel job
+app.delete('/api/queue/:id', async (req, res) => {
+  try {
+    const job = cancelJob(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found or cannot be cancelled' });
+    }
+    res.json({ success: true, job });
+  } catch (error) {
+    console.error('Error cancelling job:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get queue statistics
+app.get('/api/queue/stats', async (req, res) => {
+  try {
+    const stats = getQueueStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching queue stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Serve frontend for all other routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
@@ -182,4 +296,8 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`SD API endpoint: ${process.env.SD_API_ENDPOINT || 'http://192.168.2.180:1234/v1'}`);
+
+  // Start the queue processor
+  startQueueProcessor(2000);
+  console.log(`Queue processor started (polling every 2 seconds)`);
 });

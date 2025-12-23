@@ -6,9 +6,13 @@ node_modules/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+backend/data/*.db
+backend/data/*.db-shm
+backend/data/*.db-wal
 
 # Generated images
 data/images/
+backend/data/images/
 
 # Environment variables
 .env

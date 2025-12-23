@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Image, Sparkles, History as HistoryIcon } from "lucide-react";
+import { Image, Sparkles, History as HistoryIcon, List } from "lucide-react";
 import { Toaster } from "./hooks/useToast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { TextToImage } from "./components/TextToImage";
 import { ImageToImage } from "./components/ImageToImage";
 import { History } from "./components/History";
+import { Queue } from "./components/Queue";
 import { Button } from "./components/ui/button";
 import { useGenerations } from "./hooks/useImageGeneration";
 
@@ -28,19 +29,42 @@ function App() {
     setActiveTab("text-to-image");
   };
 
+  const tabs = [
+    { value: "text-to-image", label: "Text to Image", icon: Sparkles },
+    { value: "image-to-image", label: "Image to Image", icon: Image },
+    { value: "queue", label: "Queue", icon: List },
+    { value: "history", label: "History", icon: HistoryIcon },
+  ];
+
   return (
     <Toaster>
       <div className="min-h-screen bg-background">
         {/* Header */}
-        <header className="border-b border-border bg-card/50 backdrop-blur-sm">
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-6 w-6 text-primary" />
-                <h1 className="text-xl font-bold">SD WebUI</h1>
+        <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
+          <div className="container mx-auto px-4 py-3">
+            <div className="flex items-center justify-between gap-4">
+              {/* Logo */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Sparkles className="h-5 w-5 text-primary" />
+                <h1 className="text-lg font-bold hidden sm:block">SD WebUI</h1>
               </div>
-              <div className="text-sm text-muted-foreground">
-                Model: <span className="font-mono text-foreground">sd-cpp-local</span>
+
+              {/* Navigation Tabs */}
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
+                <TabsList className="grid w-full grid-cols-4 bg-muted/50 h-9">
+                  {tabs.map((tab) => (
+                    <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5 text-sm">
+                      <tab.icon className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">{tab.label}</span>
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+
+              {/* Model Info */}
+              <div className="text-sm text-muted-foreground flex-shrink-0 text-right">
+                <span className="hidden sm:inline">Model: </span>
+                <span className="font-mono text-foreground">sd-cpp-local</span>
               </div>
             </div>
           </div>
@@ -49,30 +73,19 @@ function App() {
         {/* Main Content */}
         <main className="container mx-auto px-4 py-8">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full max-w-md grid-cols-3 mb-8 bg-muted">
-              <TabsTrigger value="text-to-image">
-                <Sparkles className="h-4 w-4 mr-2" />
-                Text to Image
-              </TabsTrigger>
-              <TabsTrigger value="image-to-image">
-                <Image className="h-4 w-4 mr-2" />
-                Image to Image
-              </TabsTrigger>
-              <TabsTrigger value="history">
-                <HistoryIcon className="h-4 w-4 mr-2" />
-                History
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="text-to-image" className="max-w-2xl mx-auto">
+            <TabsContent value="text-to-image" className="max-w-2xl mx-auto mt-0">
               <TextToImage onGenerated={handleGenerated} settings={createMoreSettings} />
             </TabsContent>
 
-            <TabsContent value="image-to-image" className="max-w-2xl mx-auto">
+            <TabsContent value="image-to-image" className="max-w-2xl mx-auto mt-0">
               <ImageToImage onGenerated={handleGenerated} />
             </TabsContent>
 
-            <TabsContent value="history">
+            <TabsContent value="queue" className="max-w-4xl mx-auto mt-0">
+              <Queue />
+            </TabsContent>
+
+            <TabsContent value="history" className="mt-0">
               <History onCreateMore={handleCreateMore} />
             </TabsContent>
           </Tabs>

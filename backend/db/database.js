@@ -62,10 +62,38 @@ export function initializeDatabase() {
     )
   `);
 
+  // Create queue table for async job processing
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS queue (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      model TEXT NOT NULL DEFAULT 'sd-cpp-local',
+      prompt TEXT,
+      negative_prompt TEXT,
+      size TEXT,
+      seed TEXT,
+      n INTEGER DEFAULT 1,
+      quality TEXT,
+      style TEXT,
+      source_image_id TEXT,
+      status TEXT DEFAULT 'pending',
+      progress REAL DEFAULT 0,
+      error TEXT,
+      generation_id TEXT,
+      created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+      updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+      started_at INTEGER,
+      completed_at INTEGER,
+      FOREIGN KEY (generation_id) REFERENCES generations(id) ON DELETE SET NULL
+    )
+  `);
+
   // Create indexes
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_generations_created_at ON generations(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_generated_images_generation_id ON generated_images(generation_id);
+    CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_queue_created_at ON queue(created_at DESC);
   `);
 
   console.log(`Database initialized at ${dbPath}`);

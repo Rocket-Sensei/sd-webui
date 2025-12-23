@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Wand2, Sparkles } from "lucide-react";
+import { Wand2, Sparkles, List } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -38,7 +38,7 @@ const STYLE_OPTIONS = [
 
 export function TextToImage({ onGenerated, settings }) {
   const { addToast } = useToast();
-  const { generate, isLoading, result } = useImageGeneration();
+  const { generateQueued, isLoading, result } = useImageGeneration();
 
   const [prompt, setPrompt] = useState("");
   const [negativePrompt, setNegativePrompt] = useState("");
@@ -47,6 +47,7 @@ export function TextToImage({ onGenerated, settings }) {
   const [quality, setQuality] = useState("auto");
   const [style, setStyle] = useState("vivid");
   const [seed, setSeed] = useState("");
+  const [useQueue, setUseQueue] = useState(true);
 
   // Apply settings when provided (from "Create More" button)
   useEffect(() => {
@@ -68,12 +69,7 @@ export function TextToImage({ onGenerated, settings }) {
     }
 
     try {
-      let extraArgs = {};
-      if (seed) {
-        extraArgs.seed = parseInt(seed);
-      }
-
-      await generate({
+      const params = {
         mode: 'generate',
         model: 'sd-cpp-local',
         prompt,
@@ -82,10 +78,16 @@ export function TextToImage({ onGenerated, settings }) {
         n,
         quality,
         style,
-      });
+      };
 
-      addToast("Success", "Image generated successfully!");
-      if (onGenerated) onGenerated();
+      if (useQueue) {
+        await generateQueued(params);
+        addToast("Success", "Job added to queue! Check the Queue tab for progress.");
+      } else {
+        await generateQueued(params);
+        addToast("Success", "Image generated successfully!");
+        if (onGenerated) onGenerated();
+      }
     } catch (err) {
       addToast("Error", err.message, "destructive");
     }
@@ -196,6 +198,22 @@ export function TextToImage({ onGenerated, settings }) {
 
         {/* Advanced Options */}
         <div className="space-y-4 pt-4 border-t border-border">
+          {/* Queue Mode */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="queue-mode">Queue Mode</Label>
+              <p className="text-xs text-muted-foreground">
+                Add to queue and continue working
+              </p>
+            </div>
+            <Switch
+              id="queue-mode"
+              checked={useQueue}
+              onCheckedChange={setUseQueue}
+              disabled={isLoading}
+            />
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="seed">Seed (optional, for reproducibility)</Label>
             <Input
@@ -222,12 +240,21 @@ export function TextToImage({ onGenerated, settings }) {
           {isLoading ? (
             <>
               <Sparkles className="h-4 w-4 mr-2 animate-spin" />
-              Generating...
+              Adding to Queue...
             </>
           ) : (
             <>
-              <Sparkles className="h-4 w-4 mr-2" />
-              Generate Image
+              {useQueue ? (
+                <>
+                  <List className="h-4 w-4 mr-2" />
+                  Add to Queue
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Generate Image
+                </>
+              )}
             </>
           )}
         </Button>
