@@ -1,7 +1,9 @@
 import FormData from 'form-data';
 import { randomUUID } from 'crypto';
 import { createGeneration, createGeneratedImage } from '../db/queries.js';
+import { getModelManager } from './modelManager.js';
 
+const modelManager = getModelManager();
 const SD_API_ENDPOINT = process.env.SD_API_ENDPOINT || 'http://192.168.2.180:1234/v1';
 
 function generateRandomSeed() {
@@ -98,8 +100,19 @@ export async function generateImageDirect(params, mode = 'generate') {
     if (params.user) requestBody.user = params.user;
   }
 
-  // Determine endpoint
-  let endpoint = SD_API_ENDPOINT;
+  // Determine endpoint - use model's configured API if available
+  const modelId = params.model || null;
+  let baseEndpoint = SD_API_ENDPOINT;
+
+  if (modelId) {
+    const modelConfig = modelManager.getModel(modelId);
+    if (modelConfig && modelConfig.api) {
+      baseEndpoint = modelConfig.api;
+      console.log(`[ImageService] Using model API endpoint: ${baseEndpoint}`);
+    }
+  }
+
+  let endpoint = baseEndpoint;
   if (mode === 'edit') {
     endpoint += '/images/edits';
   } else if (mode === 'variation') {
@@ -215,8 +228,19 @@ export async function generateImage(params, mode = 'generate') {
     if (params.user) requestBody.user = params.user;
   }
 
-  // Determine endpoint
-  let endpoint = SD_API_ENDPOINT;
+  // Determine endpoint - use model's configured API if available
+  const modelId = params.model || null;
+  let baseEndpoint = SD_API_ENDPOINT;
+
+  if (modelId) {
+    const modelConfig = modelManager.getModel(modelId);
+    if (modelConfig && modelConfig.api) {
+      baseEndpoint = modelConfig.api;
+      console.log(`[ImageService] Using model API endpoint: ${baseEndpoint}`);
+    }
+  }
+
+  let endpoint = baseEndpoint;
   if (mode === 'edit') {
     endpoint += '/images/edits';
   } else if (mode === 'variation') {
