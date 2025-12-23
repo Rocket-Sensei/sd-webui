@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Wand2, Sparkles } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -36,7 +36,7 @@ const STYLE_OPTIONS = [
   { value: "natural", label: "Natural" },
 ];
 
-export function TextToImage({ onGenerated }) {
+export function TextToImage({ onGenerated, settings }) {
   const { addToast } = useToast();
   const { generate, isLoading, result } = useImageGeneration();
 
@@ -47,6 +47,19 @@ export function TextToImage({ onGenerated }) {
   const [quality, setQuality] = useState("auto");
   const [style, setStyle] = useState("vivid");
   const [seed, setSeed] = useState("");
+
+  // Apply settings when provided (from "Create More" button)
+  useEffect(() => {
+    if (settings) {
+      if (settings.prompt) setPrompt(settings.prompt);
+      if (settings.negative_prompt !== undefined) setNegativePrompt(settings.negative_prompt);
+      if (settings.size) setSize(settings.size);
+      if (settings.n) setN(settings.n);
+      if (settings.quality) setQuality(settings.quality);
+      if (settings.style) setStyle(settings.style);
+      if (settings.seed) setSeed(settings.seed.toString());
+    }
+  }, [settings]);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) {

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { mkdirSync, existsSync } from 'fs';
+import { mkdirSync, existsSync, unlinkSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -103,9 +103,8 @@ export function deleteGeneration(id) {
   // Delete image files
   for (const image of images) {
     try {
-      const fs = await import('fs');
       if (existsSync(image.file_path)) {
-        fs.unlinkSync(image.file_path);
+        unlinkSync(image.file_path);
       }
     } catch (e) {
       console.error('Failed to delete image file:', e);

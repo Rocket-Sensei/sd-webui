@@ -10,6 +10,7 @@ import { useGenerations } from "./hooks/useImageGeneration";
 
 function App() {
   const [activeTab, setActiveTab] = useState("text-to-image");
+  const [createMoreSettings, setCreateMoreSettings] = useState(null);
   const { fetchGenerations } = useGenerations();
 
   useEffect(() => {
@@ -20,6 +21,11 @@ function App() {
     // Switch to history tab after generation
     setActiveTab("history");
     fetchGenerations();
+  };
+
+  const handleCreateMore = (generation) => {
+    setCreateMoreSettings(generation);
+    setActiveTab("text-to-image");
   };
 
   return (
@@ -59,7 +65,7 @@ function App() {
             </TabsList>
 
             <TabsContent value="text-to-image" className="max-w-2xl mx-auto">
-              <TextToImage onGenerated={handleGenerated} />
+              <TextToImage onGenerated={handleGenerated} settings={createMoreSettings} />
             </TabsContent>
 
             <TabsContent value="image-to-image" className="max-w-2xl mx-auto">
@@ -67,7 +73,7 @@ function App() {
             </TabsContent>
 
             <TabsContent value="history">
-              <History />
+              <History onCreateMore={handleCreateMore} />
             </TabsContent>
           </Tabs>
         </main>

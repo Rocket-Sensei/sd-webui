@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trash2, Download, Image as ImageIcon, Eye, Calendar, Box, ChevronLeft, ChevronRight } from "lucide-react";
+import { Trash2, Download, Image as ImageIcon, Eye, Calendar, Box, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card, CardContent } from "./ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
@@ -7,7 +7,7 @@ import { useGenerations } from "../hooks/useImageGeneration";
 import { useToast } from "../hooks/useToast";
 import { formatDate } from "../lib/utils";
 
-export function History() {
+export function History({ onCreateMore }) {
   const { addToast } = useToast();
   const { fetchGenerations, deleteGeneration, isLoading, generations } = useGenerations();
   const [selectedImage, setSelectedImage] = useState(null);
@@ -223,6 +223,17 @@ export function History() {
                   <Download className="h-3 w-3 mr-1" />
                   Download
                 </Button>
+                {onCreateMore && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => onCreateMore(generation)}
+                  >
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    Create More
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
