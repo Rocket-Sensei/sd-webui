@@ -284,6 +284,14 @@ export class ModelManager {
       this.loadConfig();
     }
 
+    // First check if there's a model with default: true flag
+    for (const [modelId, model] of this.models.entries()) {
+      if (model.default === true) {
+        return this.getModel(modelId);
+      }
+    }
+
+    // Fall back to global default setting
     if (!this.defaultModelId) {
       return null;
     }

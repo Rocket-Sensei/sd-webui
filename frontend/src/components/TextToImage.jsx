@@ -72,7 +72,7 @@ export function TextToImage({ onGenerated, settings, selectedModel, onModelChang
     try {
       const params = {
         mode: 'generate',
-        model: selectedModel?.id || undefined, // Use selected model, undefined will use default
+        model: selectedModel || undefined, // Use selected model, undefined will use default
         prompt,
         negative_prompt: negativePrompt,
         size,

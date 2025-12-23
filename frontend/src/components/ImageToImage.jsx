@@ -81,7 +81,7 @@ export function ImageToImage({ onGenerated, selectedModel, onModelChange }) {
     try {
       await generate({
         mode,
-        model: selectedModel?.id || undefined, // Use selected model, undefined will use default
+        model: selectedModel || undefined, // Use selected model, undefined will use default
         prompt,
         negative_prompt: negativePrompt,
         size,
