@@ -10,6 +10,11 @@ import { getAllGenerations, getGenerationById, getImageById, getImagesByGenerati
 import { addToQueue, getJobs, getJobById, cancelJob, getQueueStats } from './db/queueQueries.js';
 import { startQueueProcessor } from './services/queueProcessor.js';
 
+// Model management services
+import { modelManager } from './services/modelManager.js';
+import { processTracker } from './services/processTracker.js';
+import { modelDownloader } from './services/modelDownloader.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -284,6 +289,316 @@ app.get('/api/queue/stats', async (req, res) => {
     res.json(stats);
   } catch (error) {
     console.error('Error fetching queue stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========== Model Management API Endpoints ==========
+
+/**
+ * GET /api/models
+ * List all available models
+ */
+app.get('/api/models', async (req, res) => {
+  try {
+    const models = modelManager.getAllModels();
+    res.json({
+      models: Object.entries(models).map(([id, config]) => ({
+        id,
+        ...config,
+        running: modelManager.isModelRunning(id)
+      })),
+      default: modelManager.getDefaultModel()
+    });
+  } catch (error) {
+    console.error('Error fetching models:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/models/:id
+ * Get details for a specific model
+ */
+app.get('/api/models/:id', async (req, res) => {
+  try {
+    const modelId = req.params.id;
+    const model = modelManager.getModel(modelId);
+
+    if (!model) {
+      return res.status(404).json({ error: 'Model not found' });
+    }
+
+    const isRunning = modelManager.isModelRunning(modelId);
+    const processInfo = isRunning ? processTracker.getProcess(modelId) : null;
+
+    res.json({
+      id: modelId,
+      ...model,
+      running: isRunning,
+      process: processInfo ? {
+        pid: processInfo.pid,
+        port: processInfo.port,
+        execMode: processInfo.execMode,
+        startedAt: processInfo.startedAt
+      } : null
+    });
+  } catch (error) {
+    console.error('Error fetching model:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/models/:id/status
+ * Get the running status of a specific model
+ */
+app.get('/api/models/:id/status', async (req, res) => {
+  try {
+    const modelId = req.params.id;
+    const model = modelManager.getModel(modelId);
+
+    if (!model) {
+      return res.status(404).json({ error: 'Model not found' });
+    }
+
+    const status = modelManager.getModelStatus(modelId);
+    res.json(status);
+  } catch (error) {
+    console.error('Error fetching model status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/models/:id/start
+ * Start a model process
+ */
+app.post('/api/models/:id/start', async (req, res) => {
+  try {
+    const modelId = req.params.id;
+    const model = modelManager.getModel(modelId);
+
+    if (!model) {
+      return res.status(404).json({ error: 'Model not found' });
+    }
+
+    // Check if already running
+    if (modelManager.isModelRunning(modelId)) {
+      return res.status(409).json({
+        error: 'Model is already running',
+        status: modelManager.getModelStatus(modelId)
+      });
+    }
+
+    // Start the model process
+    const process = await modelManager.startModel(modelId);
+
+    res.json({
+      success: true,
+      modelId,
+      status: 'starting',
+      pid: process.pid,
+      message: `Model ${modelId} is starting`
+    });
+  } catch (error) {
+    console.error('Error starting model:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/models/:id/stop
+ * Stop a running model process
+ */
+app.post('/api/models/:id/stop', async (req, res) => {
+  try {
+    const modelId = req.params.id;
+    const model = modelManager.getModel(modelId);
+
+    if (!model) {
+      return res.status(404).json({ error: 'Model not found' });
+    }
+
+    // Check if model is running
+    if (!modelManager.isModelRunning(modelId)) {
+      return res.status(400).json({
+        error: 'Model is not running',
+        status: modelManager.getModelStatus(modelId)
+      });
+    }
+
+    // Stop the model process
+    await modelManager.stopModel(modelId);
+
+    res.json({
+      success: true,
+      modelId,
+      status: 'stopped',
+      message: `Model ${modelId} has been stopped`
+    });
+  } catch (error) {
+    console.error('Error stopping model:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/models/running
+ * Get list of currently running models
+ */
+app.get('/api/models/running', async (req, res) => {
+  try {
+    const runningModels = modelManager.getRunningModels();
+    const processes = processTracker.getAllProcesses();
+
+    const result = runningModels.map(modelId => {
+      const model = modelManager.getModel(modelId);
+      const processInfo = processes.find(p => p.modelId === modelId);
+
+      return {
+        id: modelId,
+        name: model?.name || modelId,
+        pid: processInfo?.pid,
+        port: processInfo?.port,
+        execMode: processInfo?.execMode,
+        startedAt: processInfo?.startedAt,
+        api: model?.api || null
+      };
+    });
+
+    res.json({
+      count: result.length,
+      models: result
+    });
+  } catch (error) {
+    console.error('Error fetching running models:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========== Model Download API Endpoints ==========
+
+/**
+ * POST /api/models/download
+ * Start a model download from HuggingFace
+ * Body: { modelId, repo, files }
+ */
+app.post('/api/models/download', async (req, res) => {
+  try {
+    const { modelId, repo, files } = req.body;
+
+    if (!repo || !files || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({
+        error: 'Missing required fields: repo and files array'
+      });
+    }
+
+    // Start the download
+    const downloadId = await modelDownloader.downloadModel(
+      repo,
+      files,
+      (progress) => {
+        // Progress callback - could emit WebSocket event here
+        console.log(`Download ${downloadId} progress:`, progress);
+      }
+    );
+
+    res.json({
+      success: true,
+      downloadId,
+      modelId,
+      repo,
+      status: 'downloading',
+      message: `Download started for ${repo}`
+    });
+  } catch (error) {
+    console.error('Error starting download:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/models/download/:id
+ * Get the status of a model download
+ */
+app.get('/api/models/download/:id', async (req, res) => {
+  try {
+    const downloadId = req.params.id;
+    const status = modelDownloader.getDownloadStatus(downloadId);
+
+    if (!status) {
+      return res.status(404).json({ error: 'Download not found' });
+    }
+
+    res.json(status);
+  } catch (error) {
+    console.error('Error fetching download status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/models/download/:id
+ * Cancel an active model download
+ */
+app.delete('/api/models/download/:id', async (req, res) => {
+  try {
+    const downloadId = req.params.id;
+    const status = modelDownloader.getDownloadStatus(downloadId);
+
+    if (!status) {
+      return res.status(404).json({ error: 'Download not found' });
+    }
+
+    if (status.status === 'completed' || status.status === 'cancelled' || status.status === 'failed') {
+      return res.status(400).json({
+        error: `Cannot cancel download with status: ${status.status}`
+      });
+    }
+
+    await modelDownloader.cancelDownload(downloadId);
+
+    res.json({
+      success: true,
+      downloadId,
+      status: 'cancelled',
+      message: 'Download has been cancelled'
+    });
+  } catch (error) {
+    console.error('Error cancelling download:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/models/downloaded
+ * Get list of downloaded models
+ */
+app.get('/api/models/downloaded', async (req, res) => {
+  try {
+    const downloadedModels = modelDownloader.getDownloadedModels();
+    const allModels = modelManager.getAllModels();
+
+    // Enrich with model configuration details
+    const result = downloadedModels.map(dm => {
+      const modelConfig = allModels[dm.modelId];
+      return {
+        modelId: dm.modelId,
+        name: modelConfig?.name || dm.modelId,
+        files: dm.files,
+        downloadedAt: dm.downloadedAt,
+        totalSize: dm.totalSize,
+        huggingfaceRepo: modelConfig?.huggingface?.repo || null
+      };
+    });
+
+    res.json({
+      count: result.length,
+      models: result
+    });
+  } catch (error) {
+    console.error('Error fetching downloaded models:', error);
     res.status(500).json({ error: error.message });
   }
 });

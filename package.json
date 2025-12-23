@@ -12,7 +12,11 @@
     "test": "vitest",
     "test:ui": "vitest --ui"
   },
-  "keywords": ["stable-diffusion", "openai", "image-generation"],
+  "keywords": [
+    "stable-diffusion",
+    "openai",
+    "image-generation"
+  ],
   "license": "MIT",
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -22,5 +26,8 @@
   "workspaces": [
     "backend",
     "frontend"
-  ]
+  ],
+  "dependencies": {
+    "js-yaml": "^4.1.1"
+  }
 }

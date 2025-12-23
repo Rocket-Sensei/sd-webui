@@ -1,0 +1,82 @@
+# Default model (used when no specific model requested)
+default: fluxed-up-flux
+
+# Models configuration
+models:
+  fluxed-up-flux:
+    # Display name
+    name: "FluxedUp Flux NSFW"
+    # Description
+    description: "High quality flux model with NSFW support"
+    # Command template to start SD-CPP in server mode
+    command: "./build/bin/sd-server"
+    args:
+      - "-l"
+      - "0.0.0.0"
+      - "--diffusion-model"
+      - "/media/nvme/sdnext/models/UNET/fluxedUpFluxNSFW_v51Q4KSV2.gguf"
+      - "--vae"
+      - "./models/ae.safetensors"
+      - "--clip_l"
+      - "./models/clip_l.safetensors"
+      - "--t5xxl"
+      - "./models/t5xxl_fp16.safetensors"
+      - "-p"
+      - "a lovely cat holding a sign says 'flux.cpp'"
+      - "--cfg-scale"
+      - "1.0"
+      - "--sampling-method"
+      - "euler"
+      - "-v"
+      - "--clip-on-cpu"
+    # API endpoint when server is running
+    api: "http://localhost:1234/v1"
+    # Mode: on_demand (start/stop per request) or preload (keep running)
+    mode: "on_demand"
+    # Execution mode: server (long-running) or cli (one-shot per image)
+    exec_mode: "server"
+    # Port to use (auto-assigned if not specified)
+    port: 1234
+    # HuggingFace model info for downloads
+    huggingface:
+      repo: "gel基础/fluxedUpFluxNSFW_v51Q4KSV2"
+      files:
+        - path: "fluxedUpFluxNSFW_v51Q4KSV2.gguf"
+          dest: "/media/nvme/sdnext/models/UNET/"
+
+  sd15-base:
+    name: "SD 1.5 Base"
+    description: "Stable Diffusion 1.5 base model"
+    command: "./build/bin/sd-server"
+    args:
+      - "-l"
+      - "0.0.0.0"
+      - "--model"
+      - "./models/v1-5-pruned-emaonly.ckpt"
+      - "--port"
+      - "1235"
+    api: "http://localhost:1235/v1"
+    mode: "preload"
+    exec_mode: "server"
+    port: 1235
+    huggingface:
+      repo: "runwayml/stable-diffusion-v1-5"
+      files:
+        - path: "v1-5-pruned-emaonly.ckpt"
+          dest: "./models/"
+
+  sdxl-turbo:
+    name: "SDXL Turbo"
+    description: "Fast SDXL Turbo for quick generations"
+    command: "./build/bin/sd"
+    args:
+      - "-m"
+      - "./models/sd_xl_turbo_1.0_fp16.safetensors"
+    api: null  # CLI mode doesn't have an API
+    mode: "on_demand"
+    exec_mode: "cli"
+    huggingface:
+      repo: "stabilityai/sdxl-turbo"
+      files:
+        - path: "sd_xl_turbo_1.0_fp16.safetensors"
+          dest: "./models/"

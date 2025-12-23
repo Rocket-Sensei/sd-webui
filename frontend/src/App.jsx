@@ -1,17 +1,20 @@
 import { useEffect, useState } from "react";
-import { Image, Sparkles, History as HistoryIcon, List } from "lucide-react";
+import { Image, Sparkles, History as HistoryIcon, List, Settings } from "lucide-react";
 import { Toaster } from "./hooks/useToast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { TextToImage } from "./components/TextToImage";
 import { ImageToImage } from "./components/ImageToImage";
 import { History } from "./components/History";
 import { Queue } from "./components/Queue";
+import { ModelManager } from "./components/ModelManager";
+import { ModelSelector } from "./components/ModelSelector";
 import { Button } from "./components/ui/button";
 import { useGenerations } from "./hooks/useImageGeneration";
 
 function App() {
   const [activeTab, setActiveTab] = useState("text-to-image");
   const [createMoreSettings, setCreateMoreSettings] = useState(null);
+  const [currentModel, setCurrentModel] = useState(null);
   const { fetchGenerations } = useGenerations();
 
   useEffect(() => {
@@ -34,6 +37,7 @@ function App() {
     { value: "image-to-image", label: "Image to Image", icon: Image },
     { value: "queue", label: "Queue", icon: List },
     { value: "history", label: "History", icon: HistoryIcon },
+    { value: "models", label: "Models", icon: Settings },
   ];
 
   return (
@@ -51,7 +55,7 @@ function App() {
 
               {/* Navigation Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
-                <TabsList className="grid w-full grid-cols-4 bg-muted/50 h-9">
+                <TabsList className="grid w-full grid-cols-5 bg-muted/50 h-9">
                   {tabs.map((tab) => (
                     <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5 text-sm">
                       <tab.icon className="h-3.5 w-3.5" />
@@ -61,11 +65,12 @@ function App() {
                 </TabsList>
               </Tabs>
 
-              {/* Model Info */}
-              <div className="text-sm text-muted-foreground flex-shrink-0 text-right">
-                <span className="hidden sm:inline">Model: </span>
-                <span className="font-mono text-foreground">sd-cpp-local</span>
-              </div>
+              {/* Model Selector */}
+              <ModelSelector
+                currentModel={currentModel}
+                onModelChange={setCurrentModel}
+                className="flex-shrink-0"
+              />
             </div>
           </div>
         </header>
@@ -87,6 +92,10 @@ function App() {
 
             <TabsContent value="history" className="mt-0">
               <History onCreateMore={handleCreateMore} />
+            </TabsContent>
+
+            <TabsContent value="models" className="max-w-4xl mx-auto mt-0">
+              <ModelManager />
             </TabsContent>
           </Tabs>
         </main>
