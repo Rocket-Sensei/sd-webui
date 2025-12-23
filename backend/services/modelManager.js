@@ -34,7 +34,8 @@ export const ModelStatus = {
 // Execution mode constants
 export const ExecMode = {
   SERVER: 'server',
-  CLI: 'cli'
+  CLI: 'cli',
+  API: 'api'  // External API (OpenAI-compatible, no local server needed)
 };
 
 // Load mode constants

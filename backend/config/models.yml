@@ -12,7 +12,7 @@ models:
     command: "./bin/sd-server"
     args:
       - "-l"
-      - "0.0.0.0"
+      - "127.0.0.1"
       - "--listen-port"
       - "1236"
       - "--diffusion-model"
@@ -30,7 +30,7 @@ models:
       - "--diffusion-fa"
       - "--flow-shift"
       - "3"
-    api: "http://localhost:1236/v1"
+    api: "http://127.0.0.1:1236/v1"
     mode: "on_demand"
     exec_mode: "server"
     port: 1236
@@ -55,7 +55,7 @@ models:
     command: "./bin/sd-server"
     args:
       - "-l"
-      - "0.0.0.0"
+      - "127.0.0.1"
       - "--listen-port"
       - "1237"
       - "--diffusion-model"
@@ -73,7 +73,7 @@ models:
       - "--diffusion-fa"
       - "--flow-shift"
       - "3"
-    api: "http://localhost:1237/v1"
+    api: "http://127.0.0.1:1237/v1"
     mode: "on_demand"
     exec_mode: "server"
     port: 1237
@@ -210,3 +210,18 @@ models:
       files:
         - path: "sd_xl_turbo_1.0_fp16.safetensors"
           dest: "./models/"
+
+  # ==================== External API Models ====================
+  # Example configuration for using external OpenAI-compatible APIs
+  # No local server is started - requests go directly to the external API
+  openai-api:
+    name: "OpenAI API (DALL-E)"
+    description: "OpenAI's DALL-E API for image generation (external API)"
+    command: null  # No command needed for API mode
+    args: []
+    api: "https://api.openai.com/v1"  # External API endpoint
+    mode: "on_demand"
+    exec_mode: "api"  # API mode - no local server
+    model_type: "text-to-image"
+    default_size: "1024x1024"
+    # Note: You'll need to set OPENAI_API_KEY environment variable

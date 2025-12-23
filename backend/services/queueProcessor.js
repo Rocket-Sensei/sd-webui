@@ -90,15 +90,20 @@ async function processQueue() {
       throw new Error(`Model not found: ${modelId}`);
     }
 
-    console.log(`[QueueProcessor] Using model: ${modelId} (${modelConfig.name})`);
+    console.log(`[QueueProcessor] Using model: ${modelId} (${modelConfig.name}), exec_mode: ${modelConfig.exec_mode}`);
 
     // Prepare model based on execution mode
     if (modelConfig.exec_mode === ExecMode.SERVER) {
-      // For server mode, ensure model is running
-      await prepareServerModel(modelId, job.id);
+      // For server mode, stop conflicting servers and start the required one
+      await prepareModelForJob(modelId, job.id);
     } else if (modelConfig.exec_mode === ExecMode.CLI) {
-      // For CLI mode, we don't need to start a server
+      // For CLI mode, stop any running servers (they're not needed)
+      await stopAllServerModels();
       console.log(`[QueueProcessor] Model ${modelId} uses CLI mode`);
+    } else if (modelConfig.exec_mode === ExecMode.API) {
+      // For API mode, stop any running servers (external API is used)
+      await stopAllServerModels();
+      console.log(`[QueueProcessor] Model ${modelId} uses external API mode`);
     }
 
     // Process the job based on type
@@ -135,17 +140,45 @@ async function processQueue() {
 }
 
 /**
- * Prepare a server model for use (start if not running)
- * @param {string} modelId - Model identifier
+ * Stop all running server models
+ * Used when switching to CLI or API mode, or when a conflicting server is running
+ * @returns {Promise<void>}
+ */
+async function stopAllServerModels() {
+  const runningModels = modelManager.getRunningModels();
+  if (runningModels.length === 0) {
+    return;
+  }
+
+  console.log(`[QueueProcessor] Stopping ${runningModels.length} running server model(s)...`);
+
+  for (const model of runningModels) {
+    try {
+      console.log(`[QueueProcessor] Stopping model: ${model.id}`);
+      await modelManager.stopModel(model.id);
+    } catch (error) {
+      console.warn(`[QueueProcessor] Failed to stop model ${model.id}:`, error.message);
+    }
+  }
+
+  console.log(`[QueueProcessor] All server models stopped`);
+}
+
+/**
+ * Prepare a model for a job - stop conflicting servers and start the required one
+ * @param {string} modelId - Model identifier to prepare
  * @param {string} jobId - Job ID for progress updates
  * @returns {Promise<void>}
  */
-async function prepareServerModel(modelId, jobId) {
+async function prepareModelForJob(modelId, jobId) {
   // Check if model is already running
   if (modelManager.isModelRunning(modelId)) {
     console.log(`[QueueProcessor] Model ${modelId} is already running`);
     return;
   }
+
+  // Stop any other running server models (only one server at a time)
+  await stopAllServerModels();
 
   console.log(`[QueueProcessor] Model ${modelId} not running, starting...`);
   updateJobProgress(jobId, 0.05, `Starting model: ${modelId}...`);
@@ -245,10 +278,13 @@ async function processGenerateJob(job, modelConfig) {
     // Use CLI handler for CLI mode models
     console.log(`[QueueProcessor] Using CLI mode for ${modelId}`);
     response = await processCLIGeneration(job, modelConfig, params);
-  } else {
-    // Use HTTP API for server mode models
-    console.log(`[QueueProcessor] Using HTTP API for ${modelId} at ${modelConfig.api}`);
+  } else if (modelConfig.exec_mode === ExecMode.SERVER || modelConfig.exec_mode === ExecMode.API) {
+    // Use HTTP API for server mode (local) or API mode (external)
+    const apiType = modelConfig.exec_mode === ExecMode.API ? 'external' : 'local';
+    console.log(`[QueueProcessor] Using ${apiType} HTTP API for ${modelId} at ${modelConfig.api}`);
     response = await processHTTPGeneration(job, modelConfig, params);
+  } else {
+    throw new Error(`Unknown execution mode: ${modelConfig.exec_mode}`);
   }
 
   updateJobProgress(job.id, 0.7, 'Saving generation record...');
@@ -435,10 +471,13 @@ async function processEditJob(job, modelConfig) {
     // Full implementation would need CLI-specific edit handling
     console.warn(`[QueueProcessor] Edit mode with CLI not fully supported, using generate`);
     response = await processCLIGeneration(job, modelConfig, params);
-  } else {
-    // Use HTTP API for server mode models
-    console.log(`[QueueProcessor] Using HTTP API for edit at ${modelConfig.api}`);
+  } else if (modelConfig.exec_mode === ExecMode.SERVER || modelConfig.exec_mode === ExecMode.API) {
+    // Use HTTP API for server mode (local) or API mode (external)
+    const apiType = modelConfig.exec_mode === ExecMode.API ? 'external' : 'local';
+    console.log(`[QueueProcessor] Using ${apiType} HTTP API for edit at ${modelConfig.api}`);
     response = await processHTTPGeneration(job, modelConfig, params);
+  } else {
+    throw new Error(`Unknown execution mode: ${modelConfig.exec_mode}`);
   }
 
   updateJobProgress(job.id, 0.7, 'Saving generation record...');
