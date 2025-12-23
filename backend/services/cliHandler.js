@@ -11,6 +11,11 @@ import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.join(__dirname, '../..');  // Project root (two levels up from backend/services/)
 
 /**
  * Generate a random seed for image generation
@@ -233,6 +238,7 @@ class CLIHandler {
       const [cmd, ...args] = command;
 
       const child = spawn(cmd, args, {
+        cwd: PROJECT_ROOT,  // Set working directory to project root so relative paths resolve correctly
         stdio: ['ignore', 'pipe', 'pipe'],
         env: process.env,
       });

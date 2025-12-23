@@ -33,13 +33,12 @@ const MODEL_STATUS = {
  */
 export function ModelSelector({ currentModel, onModelChange, className = "" }) {
   const [models, setModels] = useState([]);
-  const [runningModels, setRunningModels] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionInProgress, setActionInProgress] = useState(null);
   const [error, setError] = useState(null);
   const { addToast } = useToast();
 
-  // Fetch available models
+  // Fetch available models (includes running status from backend)
   const fetchModels = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE}`);
@@ -62,40 +61,24 @@ export function ModelSelector({ currentModel, onModelChange, className = "" }) {
     }
   }, [currentModel, onModelChange]);
 
-  // Fetch running models
-  const fetchRunningModels = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE}/running`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch running models: ${response.statusText}`);
-      }
-      const data = await response.json();
-      setRunningModels(data.running || []);
-      setError(null);
-    } catch (err) {
-      console.error("Error fetching running models:", err);
-      setError(err.message);
-    }
-  }, []);
-
   // Initial data load
   useEffect(() => {
     const loadInitialData = async () => {
       setIsLoading(true);
-      await Promise.all([fetchModels(), fetchRunningModels()]);
+      await fetchModels();
       setIsLoading(false);
     };
     loadInitialData();
-  }, [fetchModels, fetchRunningModels]);
+  }, [fetchModels]);
 
   // Poll for status updates every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchRunningModels();
+      fetchModels();
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [fetchRunningModels]);
+  }, [fetchModels]);
 
   // Start a model
   const startModel = async (modelId) => {
@@ -108,7 +91,7 @@ export function ModelSelector({ currentModel, onModelChange, className = "" }) {
       if (!response.ok) {
         throw new Error(`Failed to start model: ${response.statusText}`);
       }
-      await fetchRunningModels();
+      await fetchModels();
       addToast("Model Starting", `Starting ${getModelById(modelId)?.name || modelId}...`, "default");
     } catch (err) {
       console.error("Error starting model:", err);
@@ -130,7 +113,7 @@ export function ModelSelector({ currentModel, onModelChange, className = "" }) {
       if (!response.ok) {
         throw new Error(`Failed to stop model: ${response.statusText}`);
       }
-      await fetchRunningModels();
+      await fetchModels();
       addToast("Model Stopped", `${getModelById(modelId)?.name || modelId} has been stopped`, "default");
     } catch (err) {
       console.error("Error stopping model:", err);
@@ -156,15 +139,16 @@ export function ModelSelector({ currentModel, onModelChange, className = "" }) {
 
   // Get model running status
   const getModelStatus = (modelId) => {
-    const running = runningModels.find((m) => m.id === modelId);
-    if (!running) return MODEL_STATUS.STOPPED;
-    return running.status || MODEL_STATUS.STOPPED;
+    const model = models.find((m) => m.id === modelId);
+    // Use status from model object, fallback to stopped
+    return model?.status?.status || MODEL_STATUS.STOPPED;
   };
 
   // Get model port
   const getModelPort = (modelId) => {
-    const running = runningModels.find((m) => m.id === modelId);
-    return running?.port;
+    const model = models.find((m) => m.id === modelId);
+    // Use port from model status object
+    return model?.status?.port;
   };
 
   // Get model by ID
