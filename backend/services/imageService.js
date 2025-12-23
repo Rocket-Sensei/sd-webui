@@ -100,9 +100,10 @@ export async function generateImageDirect(params, mode = 'generate') {
   // Determine endpoint - use model's configured API if available
   const modelId = params.model || null;
   let baseEndpoint = SD_API_ENDPOINT;
+  let modelConfig = null;
 
   if (modelId) {
-    const modelConfig = modelManager.getModel(modelId);
+    modelConfig = modelManager.getModel(modelId);
     if (modelConfig && modelConfig.api) {
       baseEndpoint = modelConfig.api;
       console.log(`[ImageService] Using model API endpoint: ${baseEndpoint}`);
@@ -118,10 +119,29 @@ export async function generateImageDirect(params, mode = 'generate') {
     endpoint += '/images/generations';
   }
 
+  // Build headers - add API key if configured
+  let headers;
+  if (isFormData) {
+    // FormData case - let fetch set Content-Type with boundary
+    headers = undefined;
+    // Note: FormData with native fetch doesn't support custom headers well
+    // API key support for FormData is limited in current implementation
+    if (modelConfig && modelConfig.api_key) {
+      console.warn('[ImageService] API key with FormData not fully supported, consider using JSON mode');
+    }
+  } else {
+    // JSON case
+    headers = { 'Content-Type': 'application/json' };
+    if (modelConfig && modelConfig.api_key) {
+      headers['Authorization'] = `Bearer ${modelConfig.api_key}`;
+      console.log(`[ImageService] Using API key for authentication`);
+    }
+  }
+
   // Make API request
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+    headers,
     body: isFormData ? requestBody : JSON.stringify(requestBody)
   });
 
@@ -222,9 +242,10 @@ export async function generateImage(params, mode = 'generate') {
   // Determine endpoint - use model's configured API if available
   const modelId = params.model || null;
   let baseEndpoint = SD_API_ENDPOINT;
+  let modelConfig = null;
 
   if (modelId) {
-    const modelConfig = modelManager.getModel(modelId);
+    modelConfig = modelManager.getModel(modelId);
     if (modelConfig && modelConfig.api) {
       baseEndpoint = modelConfig.api;
       console.log(`[ImageService] Using model API endpoint: ${baseEndpoint}`);
@@ -240,10 +261,29 @@ export async function generateImage(params, mode = 'generate') {
     endpoint += '/images/generations';
   }
 
+  // Build headers - add API key if configured
+  let headers;
+  if (isFormData) {
+    // FormData case - let fetch set Content-Type with boundary
+    headers = undefined;
+    // Note: FormData with native fetch doesn't support custom headers well
+    // API key support for FormData is limited in current implementation
+    if (modelConfig && modelConfig.api_key) {
+      console.warn('[ImageService] API key with FormData not fully supported, consider using JSON mode');
+    }
+  } else {
+    // JSON case
+    headers = { 'Content-Type': 'application/json' };
+    if (modelConfig && modelConfig.api_key) {
+      headers['Authorization'] = `Bearer ${modelConfig.api_key}`;
+      console.log(`[ImageService] Using API key for authentication`);
+    }
+  }
+
   // Make API request
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: isFormData ? undefined : { 'Content-Type': 'application/json' },
+    headers,
     body: isFormData ? requestBody : JSON.stringify(requestBody)
   });
 

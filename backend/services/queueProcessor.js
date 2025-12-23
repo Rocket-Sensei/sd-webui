@@ -217,7 +217,8 @@ async function prepareModelForJob(modelId, jobId) {
 
 /**
  * Wait for server to be ready via HTTP health check
- * @param {string} apiUrl - API base URL
+ * Checks /v1/models endpoint to verify the model is loaded and server is ready
+ * @param {string} apiUrl - API base URL (e.g., http://127.0.0.1:1236/v1)
  * @param {number} timeout - Timeout in milliseconds
  * @returns {Promise<void>}
  */
@@ -225,16 +226,25 @@ async function waitForServerReady(apiUrl, timeout = 30000) {
   const startTime = Date.now();
   const checkInterval = 1000;
 
+  // Build the models endpoint URL
+  const modelsUrl = apiUrl.endsWith('/') ? `${apiUrl}models` : `${apiUrl}/models`;
+
   while (Date.now() - startTime < timeout) {
     try {
-      // Try to reach a health endpoint or just the base API
-      const response = await fetch(apiUrl.replace(/\/v1$/, '') || apiUrl, {
+      // Check /v1/models endpoint - sdcpp returns list of models when loaded
+      const response = await fetch(modelsUrl, {
         method: 'GET',
         signal: AbortSignal.timeout(5000)
       });
 
       if (response.ok) {
-        console.log(`[QueueProcessor] Server at ${apiUrl} is ready`);
+        // Optionally verify response contains model data
+        const data = await response.json();
+        if (data.object === 'list' && Array.isArray(data.data)) {
+          console.log(`[QueueProcessor] Server at ${apiUrl} is ready (${data.data.length} model(s) available)`);
+        } else {
+          console.log(`[QueueProcessor] Server at ${apiUrl} is ready`);
+        }
         return;
       }
     } catch (error) {
@@ -393,11 +403,20 @@ async function processHTTPGeneration(job, modelConfig, params) {
 
   console.log(`[QueueProcessor] Making request to: ${endpoint}`);
 
+  // Build headers - add API key if configured
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+
+  // Add Authorization header if API key is configured
+  if (modelConfig.api_key) {
+    headers['Authorization'] = `Bearer ${modelConfig.api_key}`;
+    console.log(`[QueueProcessor] Using API key for authentication`);
+  }
+
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(requestBody)
   });
 
