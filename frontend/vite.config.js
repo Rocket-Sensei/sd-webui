@@ -15,6 +15,10 @@ export default defineConfig({
         target: backendUrl,
         changeOrigin: true
       },
+      '/sdapi': {
+        target: backendUrl,
+        changeOrigin: true
+      },
       '/ws': {
         target: backendUrl,
         changeOrigin: true,

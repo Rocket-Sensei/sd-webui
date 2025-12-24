@@ -14,7 +14,7 @@ const execAsync = promisify(exec);
 
 // Get paths - backend directory is where this service runs
 const backendDir = dirname(new URL(import.meta.url).pathname);
-const projectRoot = resolve(backendDir, '..');
+const projectRoot = resolve(backendDir, '../..');
 const sdCliPath = join(projectRoot, 'sdcpp', 'bin', 'sd-cli');
 
 /**

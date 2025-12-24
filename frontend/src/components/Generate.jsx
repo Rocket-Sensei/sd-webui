@@ -279,7 +279,7 @@ export function Generate({ onGenerated, settings, selectedModel, onModelChange }
     if (mode === "img2img" || mode === "imgedit") {
       return ["image-to-image"];
     }
-    return [];
+    return ["text-to-image"];
   }, [mode]);
 
   return (
