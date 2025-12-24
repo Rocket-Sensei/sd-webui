@@ -1,15 +1,31 @@
 import { getDatabase, getImagesDir } from './database.js';
-import { writeFile } from 'fs/promises';
+import { writeFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 
+// Generation status constants (merged from queue)
+export const GenerationStatus = {
+  PENDING: 'pending',
+  PROCESSING: 'processing',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled',
+};
+
+/**
+ * Create a new generation (can be queued or direct)
+ * This replaces both createGeneration and addToQueue
+ */
 export async function createGeneration(data) {
   const db = getDatabase();
   const stmt = db.prepare(`
     INSERT INTO generations (
       id, type, model, prompt, negative_prompt, size, seed, n,
-      quality, style, response_format, user_id, source_image_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      quality, style, response_format, user_id, source_image_id,
+      status, progress, error,
+      input_image_path, input_image_mime_type,
+      mask_image_path, mask_image_mime_type
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   return stmt.run(
     data.id,
@@ -24,7 +40,14 @@ export async function createGeneration(data) {
     data.style || null,
     data.response_format || 'b64_json',
     data.user_id || null,
-    data.source_image_id || null
+    data.source_image_id || null,
+    data.status || GenerationStatus.PENDING,
+    data.progress || 0,
+    data.error || null,
+    data.input_image_path || null,
+    data.input_image_mime_type || null,
+    data.mask_image_path || null,
+    data.mask_image_mime_type || null
   );
 }
 
@@ -122,4 +145,163 @@ export function getGenerationsByType(type, limit = 50) {
     LIMIT ?
   `);
   return stmt.all(type, limit);
+}
+
+// ========== Queue-related functions (now using generations table) ==========
+
+/**
+ * Get the next pending generation for processing
+ */
+export function getNextPendingGeneration() {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT * FROM generations
+    WHERE status = ?
+    ORDER BY created_at ASC
+    LIMIT 1
+  `);
+  return stmt.get(GenerationStatus.PENDING);
+}
+
+/**
+ * Update generation status and related fields
+ */
+export function updateGenerationStatus(id, status, additionalData = {}) {
+  const db = getDatabase();
+  const now = Date.now();
+
+  let query = 'UPDATE generations SET status = ?, updated_at = ?';
+  const params = [status, now];
+
+  if (status === GenerationStatus.PROCESSING && !additionalData.started_at) {
+    query += ', started_at = ?';
+    params.push(now);
+  } else if (status === GenerationStatus.COMPLETED || status === GenerationStatus.FAILED) {
+    query += ', completed_at = ?';
+    params.push(now);
+  }
+
+  if (additionalData.progress !== undefined) {
+    query += ', progress = ?';
+    params.push(additionalData.progress);
+  }
+
+  if (additionalData.error !== undefined) {
+    query += ', error = ?';
+    params.push(additionalData.error);
+  }
+
+  query += ' WHERE id = ?';
+  params.push(id);
+
+  const stmt = db.prepare(query);
+  stmt.run(...params);
+
+  return getGenerationById(id);
+}
+
+/**
+ * Update generation progress
+ */
+export function updateGenerationProgress(id, progress) {
+  return updateGenerationStatus(id, GenerationStatus.PROCESSING, { progress });
+}
+
+/**
+ * Cancel a generation (only if pending or processing)
+ */
+export function cancelGeneration(id) {
+  const db = getDatabase();
+  const generation = getGenerationById(id);
+
+  if (!generation) {
+    return null;
+  }
+
+  // Only allow cancelling pending or processing jobs
+  if (generation.status !== GenerationStatus.PENDING && generation.status !== GenerationStatus.PROCESSING) {
+    return null;
+  }
+
+  return updateGenerationStatus(id, GenerationStatus.CANCELLED);
+}
+
+/**
+ * Delete a generation (for cleanup or after cancel)
+ */
+export function deleteGeneration(id) {
+  const db = getDatabase();
+  const stmt = db.prepare('DELETE FROM generations WHERE id = ?');
+  return stmt.run(id);
+}
+
+/**
+ * Delete all generated images for a generation
+ */
+export async function deleteGeneratedImagesByGenerationId(generationId) {
+  const db = getDatabase();
+  const images = getImagesByGenerationId(generationId);
+
+  // Delete image files from disk
+  for (const image of images) {
+    try {
+      await unlink(image.file_path);
+    } catch (e) {
+      console.error(`Failed to delete image file: ${image.file_path}`, e);
+    }
+  }
+
+  // Delete from database
+  const stmt = db.prepare('DELETE FROM generated_images WHERE generation_id = ?');
+  return stmt.run(generationId);
+}
+
+/**
+ * Get generation statistics (replaces getQueueStats)
+ */
+export function getGenerationStats() {
+  const db = getDatabase();
+
+  const pendingStmt = db.prepare(`SELECT COUNT(*) as count FROM generations WHERE status = ?`);
+  const processingStmt = db.prepare(`SELECT COUNT(*) as count FROM generations WHERE status = ?`);
+  const completedStmt = db.prepare(`SELECT COUNT(*) as count FROM generations WHERE status = ?`);
+  const failedStmt = db.prepare(`SELECT COUNT(*) as count FROM generations WHERE status = ?`);
+
+  return {
+    pending: pendingStmt.get(GenerationStatus.PENDING).count,
+    processing: processingStmt.get(GenerationStatus.PROCESSING).count,
+    completed: completedStmt.get(GenerationStatus.COMPLETED).count,
+    failed: failedStmt.get(GenerationStatus.FAILED).count,
+  };
+}
+
+/**
+ * Clear old completed/failed generations
+ */
+export function clearOldGenerations(olderThanMs = 24 * 60 * 60 * 1000) { // 24 hours default
+  const db = getDatabase();
+  const cutoff = Date.now() - olderThanMs;
+
+  const stmt = db.prepare(`
+    DELETE FROM generations
+    WHERE status IN ('completed', 'failed', 'cancelled')
+    AND completed_at < ?
+  `);
+
+  return stmt.run(cutoff);
+}
+
+/**
+ * Get generations by status (for queue processor)
+ */
+export function getGenerationsByStatus(status, limit = 50) {
+  const db = getDatabase();
+
+  const stmt = db.prepare(`
+    SELECT * FROM generations
+    WHERE status = ?
+    ORDER BY created_at ASC
+    LIMIT ?
+  `);
+  return stmt.all(status, limit);
 }

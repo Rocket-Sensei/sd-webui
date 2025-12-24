@@ -1,11 +1,10 @@
 import { useEffect, useState, useCallback } from "react";
-import { Image, Sparkles, History as HistoryIcon, List, Settings } from "lucide-react";
+import { Image, Sparkles, List, Settings } from "lucide-react";
 import { Toaster } from "./hooks/useToast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { TextToImage } from "./components/TextToImage";
 import { ImageToImage } from "./components/ImageToImage";
-import { History } from "./components/History";
-import { Queue } from "./components/Queue";
+import { UnifiedQueue } from "./components/UnifiedQueue";
 import { ModelManager } from "./components/ModelManager";
 import { Button } from "./components/ui/button";
 import { useGenerations } from "./hooks/useImageGeneration";
@@ -21,8 +20,8 @@ function App() {
   }, [fetchGenerations]);
 
   const handleGenerated = useCallback(() => {
-    // Switch to history tab after generation
-    setActiveTab("history");
+    // Switch to queue tab after generation (shows active jobs and recent generations)
+    setActiveTab("queue");
     fetchGenerations();
   }, [fetchGenerations]);
 
@@ -34,8 +33,7 @@ function App() {
   const tabs = [
     { value: "text-to-image", label: "Text to Image", icon: Sparkles },
     { value: "image-to-image", label: "Image to Image", icon: Image },
-    { value: "queue", label: "Queue", icon: List },
-    { value: "history", label: "History", icon: HistoryIcon },
+    { value: "queue", label: "Queue & History", icon: List },
     { value: "models", label: "Models", icon: Settings },
   ];
 
@@ -54,7 +52,7 @@ function App() {
 
               {/* Navigation Tabs */}
               <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1">
-                <TabsList className="grid w-full grid-cols-5 bg-muted/50 h-9">
+                <TabsList className="grid w-full grid-cols-4 bg-muted/50 h-9">
                   {tabs.map((tab) => (
                     <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5 text-sm">
                       <tab.icon className="h-3.5 w-3.5" />
@@ -87,12 +85,8 @@ function App() {
               />
             </TabsContent>
 
-            <TabsContent value="queue" className="max-w-4xl mx-auto mt-0">
-              <Queue />
-            </TabsContent>
-
-            <TabsContent value="history" className="mt-0">
-              <History onCreateMore={handleCreateMore} />
+            <TabsContent value="queue" className="max-w-6xl mx-auto mt-0">
+              <UnifiedQueue onCreateMore={handleCreateMore} />
             </TabsContent>
 
             <TabsContent value="models" className="max-w-4xl mx-auto mt-0">

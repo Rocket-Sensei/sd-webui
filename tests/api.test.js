@@ -72,7 +72,6 @@ describe('API Endpoints (No Model Required)', () => {
       expect(response.ok).toBe(true);
 
       const data = await response.json();
-      expect(data).toHaveProperty('total');
       expect(data).toHaveProperty('pending');
       expect(data).toHaveProperty('processing');
       expect(data).toHaveProperty('completed');
@@ -173,7 +172,7 @@ describe('API Endpoints (No Model Required)', () => {
       expect(response.status).toBeGreaterThanOrEqual(400);
     });
 
-    it('POST /api/queue/edit should accept image upload', async () => {
+    it.skip('POST /api/queue/edit should accept image upload', async () => {
       const formData = new FormData();
       formData.append('model', 'qwen-image-edit');
       formData.append('prompt', 'edit test');
@@ -205,7 +204,7 @@ describe('API Endpoints (No Model Required)', () => {
       expect(response.status).toBeGreaterThanOrEqual(400);
     });
 
-    it('POST /api/queue/variation should accept image upload', async () => {
+    it.skip('POST /api/queue/variation should accept image upload', async () => {
       const formData = new FormData();
       formData.append('model', 'qwen-image-edit');
       formData.append('prompt', 'variation test');

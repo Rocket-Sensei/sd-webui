@@ -10,8 +10,17 @@ import { runMigrations } from './db/migrations.js';
 import { randomUUID } from 'crypto';
 import { writeFile } from 'fs/promises';
 import { generateImage } from './services/imageService.js';
-import { getAllGenerations, getGenerationById, getImageById, getImagesByGenerationId } from './db/queries.js';
-import { addToQueue, getJobs, getJobById, cancelJob, getQueueStats } from './db/queueQueries.js';
+import {
+  getAllGenerations,
+  getGenerationById,
+  getImageById,
+  getImagesByGenerationId,
+  createGeneration,
+  cancelGeneration,
+  getGenerationStats,
+  GenerationStatus,
+  deleteGeneration
+} from './db/queries.js';
 import { startQueueProcessor } from './services/queueProcessor.js';
 
 // Model management services
@@ -198,8 +207,8 @@ app.get('/api/generations/:id/images', async (req, res) => {
 // Delete generation
 app.delete('/api/generations/:id', async (req, res) => {
   try {
-    const { deleteGeneration } = await import('./db/database.js');
-    await deleteGeneration(req.params.id);
+    // Delete the generation (also deletes associated images via cascade)
+    const result = deleteGeneration(req.params.id);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting generation:', error);
@@ -212,7 +221,9 @@ app.delete('/api/generations/:id', async (req, res) => {
 // Add job to queue (text-to-image)
 app.post('/api/queue/generate', async (req, res) => {
   try {
+    const id = randomUUID();
     const params = {
+      id,
       type: 'generate',
       prompt: req.body.prompt,
       negative_prompt: req.body.negative_prompt,
@@ -220,13 +231,11 @@ app.post('/api/queue/generate', async (req, res) => {
       n: req.body.n,
       quality: req.body.quality,
       style: req.body.style,
+      model: req.body.model,
+      status: GenerationStatus.PENDING,
     };
-    // Only include model if provided
-    if (req.body.model) {
-      params.model = req.body.model;
-    }
-    const job = addToQueue(params);
-    res.json({ job_id: job.id, status: job.status });
+    await createGeneration(params);
+    res.json({ job_id: id, status: GenerationStatus.PENDING });
   } catch (error) {
     console.error('Error adding to queue:', error);
     res.status(500).json({ error: error.message });
@@ -249,13 +258,17 @@ app.post('/api/queue/edit', upload.fields([{ name: 'image', maxCount: 1 }, { nam
     const pngBuffer = await ensurePngFormat(imageFile.buffer, imageFile.mimetype);
     await writeFile(imagePath, pngBuffer);
 
+    const id = randomUUID();
     const params = {
+      id,
       type: 'edit',
       prompt: req.body.prompt,
       negative_prompt: req.body.negative_prompt,
       size: req.body.size,
       n: req.body.n,
       source_image_id: req.body.source_image_id,
+      model: req.body.model,
+      status: GenerationStatus.PENDING,
       input_image_path: imagePath,
       input_image_mime_type: 'image/png',
     };
@@ -271,12 +284,8 @@ app.post('/api/queue/edit', upload.fields([{ name: 'image', maxCount: 1 }, { nam
       params.mask_image_mime_type = 'image/png';
     }
 
-    // Only include model if provided
-    if (req.body.model) {
-      params.model = req.body.model;
-    }
-    const job = addToQueue(params);
-    res.json({ job_id: job.id, status: job.status });
+    await createGeneration(params);
+    res.json({ job_id: id, status: GenerationStatus.PENDING });
   } catch (error) {
     console.error('Error adding to queue:', error);
     res.status(500).json({ error: error.message });
@@ -298,35 +307,40 @@ app.post('/api/queue/variation', upload.single('image'), async (req, res) => {
     const pngBuffer = await ensurePngFormat(req.file.buffer, req.file.mimetype);
     await writeFile(imagePath, pngBuffer);
 
+    const id = randomUUID();
     const params = {
+      id,
       type: 'variation',
       prompt: req.body.prompt,
       negative_prompt: req.body.negative_prompt,
       size: req.body.size,
       n: req.body.n,
       source_image_id: req.body.source_image_id,
+      model: req.body.model,
+      status: GenerationStatus.PENDING,
       input_image_path: imagePath,
       input_image_mime_type: 'image/png',
     };
 
-    // Only include model if provided
-    if (req.body.model) {
-      params.model = req.body.model;
-    }
-    const job = addToQueue(params);
-    res.json({ job_id: job.id, status: job.status });
+    await createGeneration(params);
+    res.json({ job_id: id, status: GenerationStatus.PENDING });
   } catch (error) {
     console.error('Error adding to queue:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Get all jobs in queue
+// Get all jobs in queue (now returns generations with status)
 app.get('/api/queue', async (req, res) => {
   try {
     const status = req.query.status || null;
-    const jobs = getJobs(status, 100);
-    const stats = getQueueStats();
+    // Return all generations, filtered by status if provided
+    const allGenerations = getAllGenerations();
+    let jobs = allGenerations;
+    if (status) {
+      jobs = allGenerations.filter(g => g.status === status);
+    }
+    const stats = getGenerationStats();
     res.json({ jobs, stats });
   } catch (error) {
     console.error('Error fetching queue:', error);
@@ -334,10 +348,21 @@ app.get('/api/queue', async (req, res) => {
   }
 });
 
+// Get queue statistics (must be before /:id route)
+app.get('/api/queue/stats', async (req, res) => {
+  try {
+    const stats = getGenerationStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching queue stats:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get single job
 app.get('/api/queue/:id', async (req, res) => {
   try {
-    const job = getJobById(req.params.id);
+    const job = getGenerationById(req.params.id);
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
@@ -351,24 +376,13 @@ app.get('/api/queue/:id', async (req, res) => {
 // Cancel job
 app.delete('/api/queue/:id', async (req, res) => {
   try {
-    const job = cancelJob(req.params.id);
+    const job = cancelGeneration(req.params.id);
     if (!job) {
       return res.status(404).json({ error: 'Job not found or cannot be cancelled' });
     }
     res.json({ success: true, job });
   } catch (error) {
     console.error('Error cancelling job:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get queue statistics
-app.get('/api/queue/stats', async (req, res) => {
-  try {
-    const stats = getQueueStats();
-    res.json(stats);
-  } catch (error) {
-    console.error('Error fetching queue stats:', error);
     res.status(500).json({ error: error.message });
   }
 });

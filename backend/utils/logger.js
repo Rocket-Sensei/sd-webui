@@ -82,7 +82,7 @@ export function logApiRequest(method, url, headers = {}, body = null) {
 /**
  * Log HTTP API response
  * @param {Response} response - Fetch response object
- * @param {Object|string} data - Parsed response data
+ * @param {Object|string} data - Parsed response data (not logged to avoid large base64 payloads)
  */
 export async function logApiResponse(response, data = null) {
   if (!isApiLoggingEnabled()) return;
@@ -96,10 +96,17 @@ export async function logApiResponse(response, data = null) {
     console.log(`  ${key}: ${value}`);
   });
 
-  // Log response body
+  // Log response summary (not full body to avoid large base64 data)
   if (data) {
-    const dataStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-    console.log('[API] Response body:', dataStr);
+    if (data.data && Array.isArray(data.data)) {
+      console.log(`[API] Response: ${data.data.length} image(s)`);
+    } else if (data.id) {
+      console.log(`[API] Response: job id=${data.id}, status=${data.status}`);
+    } else if (data.created) {
+      console.log(`[API] Response: created=${data.created}`);
+    } else {
+      console.log('[API] Response: <data received>');
+    }
   }
 
   console.log('====================================\n');

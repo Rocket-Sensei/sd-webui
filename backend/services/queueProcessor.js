@@ -1,6 +1,5 @@
-import { getNextPendingJob, updateJobStatus, updateJobProgress, deleteJob, QueueStatus } from '../db/queueQueries.js';
+import { getNextPendingGeneration, updateGenerationStatus, updateGenerationProgress, deleteGeneration, GenerationStatus, createGeneratedImage } from '../db/queries.js';
 import { generateImageDirect } from './imageService.js';
-import { createGeneration, createGeneratedImage } from '../db/queries.js';
 import { randomUUID } from 'crypto';
 import { getModelManager, ExecMode, ModelStatus } from './modelManager.js';
 import { cliHandler } from './cliHandler.js';
@@ -67,7 +66,7 @@ async function processQueue() {
     return;
   }
 
-  const job = getNextPendingJob();
+  const job = getNextPendingGeneration();
   if (!job) {
     return;
   }
@@ -79,7 +78,7 @@ async function processQueue() {
 
   try {
     // Update status to processing
-    updateJobStatus(job.id, QueueStatus.PROCESSING);
+    updateGenerationStatus(job.id, GenerationStatus.PROCESSING);
 
     // Get model configuration
     // Use type-specific default if no model specified
@@ -129,15 +128,13 @@ async function processQueue() {
         throw new Error(`Unknown job type: ${job.type}`);
     }
 
-    // Update status to completed
-    updateJobStatus(job.id, QueueStatus.COMPLETED, {
-      generation_id: result.generationId,
-    });
+    // Update status to completed (generation_id is now the same as job.id)
+    updateGenerationStatus(job.id, GenerationStatus.COMPLETED);
 
     console.log(`Job ${job.id} completed successfully`);
   } catch (error) {
     console.error(`Job ${job.id} failed:`, error);
-    updateJobStatus(job.id, QueueStatus.FAILED, {
+    updateGenerationStatus(job.id, GenerationStatus.FAILED, {
       error: error.message,
     });
   } finally {
@@ -188,14 +185,14 @@ async function prepareModelForJob(modelId, jobId) {
   await stopAllServerModels();
 
   console.log(`[QueueProcessor] Model ${modelId} not running, starting...`);
-  updateJobProgress(jobId, 0.05, `Starting model: ${modelId}...`);
+  updateGenerationProgress(jobId, 0.05, `Starting model: ${modelId}...`);
 
   try {
     // Start the model
     const processEntry = await modelManager.startModel(modelId);
 
     // Wait for server to be ready
-    updateJobProgress(jobId, 0.1, `Waiting for model server to be ready...`);
+    updateGenerationProgress(jobId, 0.1, `Waiting for model server to be ready...`);
 
     // The startModel already waits for ready, but we'll verify
     const maxWait = 60000; // 60 seconds max
@@ -274,7 +271,7 @@ async function processGenerateJob(job, modelConfig) {
   const modelId = modelConfig.id;
 
   // Update progress
-  updateJobProgress(job.id, 0.15, 'Preparing generation parameters...');
+  updateGenerationProgress(job.id, 0.15, 'Preparing generation parameters...');
 
   const params = {
     prompt: job.prompt,
@@ -286,10 +283,11 @@ async function processGenerateJob(job, modelConfig) {
     style: job.style,
   };
 
-  updateJobProgress(job.id, 0.25, 'Generating image...');
+  updateGenerationProgress(job.id, 0.25, 'Generating image...');
 
   let response;
-  const generationId = randomUUID();
+  // Use job.id as generation_id since queue is now merged into generations
+  const generationId = job.id;
 
   if (modelConfig.exec_mode === ExecMode.CLI) {
     // Use CLI handler for CLI mode models
@@ -304,26 +302,9 @@ async function processGenerateJob(job, modelConfig) {
     throw new Error(`Unknown execution mode: ${modelConfig.exec_mode}`);
   }
 
-  updateJobProgress(job.id, 0.7, 'Saving generation record...');
-
-  // Create generation record
-  await createGeneration({
-    id: generationId,
-    type: 'generate',
-    model: modelId,
-    prompt: job.prompt,
-    negative_prompt: job.negative_prompt,
-    size: job.size,
-    seed: job.seed,
-    n: job.n,
-    quality: job.quality,
-    style: job.style,
-    response_format: 'b64_json',
-    user_id: job.user_id || null,
-    source_image_id: job.source_image_id || null,
-  });
-
-  updateJobProgress(job.id, 0.85, 'Saving images...');
+  updateGenerationProgress(job.id, 0.7, 'Saving generation record...');
+  // Generation record already exists (created when queued), just save images
+  updateGenerationProgress(job.id, 0.85, 'Saving images...');
 
   // Save images
   if (response.data && response.data.length > 0) {
@@ -486,7 +467,7 @@ async function processEditJob(job, modelConfig) {
   }
 
   // Update progress
-  updateJobProgress(job.id, 0.15, 'Loading input image...');
+  updateGenerationProgress(job.id, 0.15, 'Loading input image...');
 
   // Load the input image from disk
   const imageBuffer = await readFile(job.input_image_path);
@@ -513,10 +494,11 @@ async function processEditJob(job, modelConfig) {
     };
   }
 
-  updateJobProgress(job.id, 0.25, 'Generating edit...');
+  updateGenerationProgress(job.id, 0.25, 'Generating edit...');
 
   let response;
-  const generationId = randomUUID();
+  // Use job.id as generation_id since queue is now merged into generations
+  const generationId = job.id;
 
   // Note: CLI mode support for edit/variation may be limited
   // depending on sdcpp CLI capabilities
@@ -534,25 +516,9 @@ async function processEditJob(job, modelConfig) {
     throw new Error(`Unknown execution mode: ${modelConfig.exec_mode}`);
   }
 
-  updateJobProgress(job.id, 0.7, 'Saving generation record...');
-
-  await createGeneration({
-    id: generationId,
-    type: 'edit',
-    model: modelId,
-    prompt: job.prompt,
-    negative_prompt: job.negative_prompt,
-    size: job.size,
-    seed: job.seed,
-    n: params.n,
-    quality: job.quality,
-    style: job.style,
-    response_format: 'b64_json',
-    user_id: job.user_id || null,
-    source_image_id: job.source_image_id || null,
-  });
-
-  updateJobProgress(job.id, 0.85, 'Saving images...');
+  updateGenerationProgress(job.id, 0.7, 'Saving generation record...');
+  // Generation record already exists (created when queued), just save images
+  updateGenerationProgress(job.id, 0.85, 'Saving images...');
 
   if (response.data && response.data.length > 0) {
     for (let i = 0; i < response.data.length; i++) {
@@ -590,7 +556,7 @@ async function processVariationJob(job, modelConfig) {
   }
 
   // Update progress
-  updateJobProgress(job.id, 0.15, 'Loading input image...');
+  updateGenerationProgress(job.id, 0.15, 'Loading input image...');
 
   // Load the input image from disk
   const imageBuffer = await readFile(job.input_image_path);
@@ -609,10 +575,11 @@ async function processVariationJob(job, modelConfig) {
     }
   };
 
-  updateJobProgress(job.id, 0.25, 'Generating variation...');
+  updateGenerationProgress(job.id, 0.25, 'Generating variation...');
 
   let response;
-  const generationId = randomUUID();
+  // Use job.id as generation_id since queue is now merged into generations
+  const generationId = job.id;
 
   // Note: CLI mode support for edit/variation may be limited
   // depending on sdcpp CLI capabilities
@@ -630,25 +597,9 @@ async function processVariationJob(job, modelConfig) {
     throw new Error(`Unknown execution mode: ${modelConfig.exec_mode}`);
   }
 
-  updateJobProgress(job.id, 0.7, 'Saving generation record...');
-
-  await createGeneration({
-    id: generationId,
-    type: 'variation',
-    model: modelId,
-    prompt: job.prompt,
-    negative_prompt: job.negative_prompt,
-    size: job.size,
-    seed: job.seed,
-    n: params.n,
-    quality: job.quality,
-    style: job.style,
-    response_format: 'b64_json',
-    user_id: job.user_id || null,
-    source_image_id: job.source_image_id || null,
-  });
-
-  updateJobProgress(job.id, 0.85, 'Saving images...');
+  updateGenerationProgress(job.id, 0.7, 'Saving generation record...');
+  // Generation record already exists (created when queued), just save images
+  updateGenerationProgress(job.id, 0.85, 'Saving images...');
 
   if (response.data && response.data.length > 0) {
     for (let i = 0; i < response.data.length; i++) {

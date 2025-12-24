@@ -1,10 +1,11 @@
 import { useState, useRef, useMemo } from "react";
-import { Upload, Image as ImageIcon, Sparkles, X } from "lucide-react";
+import { Upload, Image as ImageIcon, Sparkles, X, List } from "lucide-react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Switch } from "./ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { useImageGeneration } from "../hooks/useImageGeneration";
 import { useToast } from "../hooks/useToast";
@@ -24,7 +25,7 @@ const MODE_OPTIONS = [
 
 export function ImageToImage({ onGenerated, selectedModel, onModelChange }) {
   const { addToast } = useToast();
-  const { generate, isLoading, result } = useImageGeneration();
+  const { generateQueued, isLoading } = useImageGeneration();
 
   const fileInputRef = useRef(null);
 
@@ -34,6 +35,7 @@ export function ImageToImage({ onGenerated, selectedModel, onModelChange }) {
   const [mode, setMode] = useState("edit");
   const [sourceImage, setSourceImage] = useState(null);
   const [sourceImagePreview, setSourceImagePreview] = useState(null);
+  const [useQueue, setUseQueue] = useState(true);
 
   // Memoize filterCapabilities to prevent unnecessary ModelSelector re-renders
   const filterCapabilities = useMemo(() => ['image-to-image'], []);
@@ -82,7 +84,7 @@ export function ImageToImage({ onGenerated, selectedModel, onModelChange }) {
     }
 
     try {
-      await generate({
+      await generateQueued({
         mode,
         model: selectedModel || undefined, // Use selected model, undefined will use default
         prompt,
@@ -91,7 +93,7 @@ export function ImageToImage({ onGenerated, selectedModel, onModelChange }) {
         image: sourceImage,
       });
 
-      addToast("Success", `Image ${mode === 'edit' ? 'edited' : 'variation created'} successfully!`);
+      addToast("Success", `Job added to queue! Check the Queue tab for progress.`);
       if (onGenerated) onGenerated();
     } catch (err) {
       addToast("Error", err.message, "destructive");
@@ -224,6 +226,25 @@ export function ImageToImage({ onGenerated, selectedModel, onModelChange }) {
           </Select>
         </div>
 
+        {/* Advanced Options */}
+        <div className="space-y-4 pt-4 border-t border-border">
+          {/* Queue Mode */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="queue-mode">Queue Mode</Label>
+              <p className="text-xs text-muted-foreground">
+                Add to queue and continue working
+              </p>
+            </div>
+            <Switch
+              id="queue-mode"
+              checked={useQueue}
+              onCheckedChange={setUseQueue}
+              disabled={isLoading}
+            />
+          </div>
+        </div>
+
         {/* Generate Button */}
         <Button
           onClick={handleGenerate}
@@ -234,33 +255,24 @@ export function ImageToImage({ onGenerated, selectedModel, onModelChange }) {
           {isLoading ? (
             <>
               <Sparkles className="h-4 w-4 mr-2 animate-spin" />
-              Processing...
+              Adding to Queue...
             </>
           ) : (
             <>
-              <Sparkles className="h-4 w-4 mr-2" />
-              {mode === "edit" ? "Edit Image" : "Create Variation"}
+              {useQueue ? (
+                <>
+                  <List className="h-4 w-4 mr-2" />
+                  Add to Queue
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  {mode === "edit" ? "Edit Image" : "Create Variation"}
+                </>
+              )}
             </>
           )}
         </Button>
-
-        {/* Result Preview */}
-        {result && result.data && result.data.length > 0 && (
-          <div className="pt-4 border-t space-y-4">
-            <Label>Result</Label>
-            <div className="grid grid-cols-2 gap-4">
-              {result.data.map((img, idx) => (
-                <div key={idx} className="aspect-square rounded-lg overflow-hidden border bg-muted">
-                  <img
-                    src={`data:image/png;base64,${img.b64_json}`}
-                    alt={`Result ${idx + 1}`}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   );
