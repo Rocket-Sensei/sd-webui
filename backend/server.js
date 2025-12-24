@@ -1187,8 +1187,21 @@ app.get('/sdapi/v1/progress', (req, res) => {
     let progress = 0;
     let state = { job_count: 0 };
 
-    if (processingJob) {
-      progress = processingJob.progress || 0;
+    // Check if any model is currently starting (model loading in progress)
+    const allModels = modelManager.getAllModels();
+    const startingModel = allModels.find(m => m.status === 'starting');
+
+    if (startingModel) {
+      // Model is loading - return non-zero progress for SillyTavern compatibility
+      // SillyTavern polls until progress === 0 AND job_count === 0
+      progress = 0.25;  // Arbitrary non-zero value to indicate loading in progress
+      state = {
+        job_count: 1,  // Non-zero to indicate work in progress
+        job_no: 0
+      };
+    } else if (processingJob) {
+      // Image generation in progress
+      progress = processingJob.progress || 0.5;
       state = {
         job_count: stats.pending || 0,
         job_no: stats.processing || 0

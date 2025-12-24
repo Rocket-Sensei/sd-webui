@@ -22,6 +22,18 @@ const __dirname = path.dirname(__filename);
 // Default paths
 const PROJECT_ROOT = path.join(__dirname, '../..');  // Project root (two levels up from backend/services/)
 const DEFAULT_CONFIG_PATH = path.join(__dirname, '../config/models.yml');
+const CONFIG_DIR = path.join(__dirname, '../config');
+
+// Default config files to load (in order - later configs override earlier ones)
+const DEFAULT_CONFIG_FILES = [
+  'settings.yml',      // Global settings (default models, etc.)
+  'upscalers.yml',     // Upscaler configurations
+  'models-qwen-cli.yml',
+  'models-qwen-image.yml',
+  'models-qwen-edit.yml',
+  'models-z-turbo.yml',
+  'models-copax.yml'
+];
 
 // Model status constants
 export const ModelStatus = {
@@ -147,7 +159,19 @@ class ProcessEntry {
  */
 export class ModelManager {
   constructor(options = {}) {
-    this.configPath = options.configPath || DEFAULT_CONFIG_PATH;
+    // Support single config path, array of paths, or use default multi-config setup
+    if (options.configPaths) {
+      this.configPaths = Array.isArray(options.configPaths) ? options.configPaths : [options.configPaths];
+    } else if (options.configPath) {
+      this.configPaths = [options.configPath];
+    } else {
+      // Use default multi-config setup
+      this.configPaths = DEFAULT_CONFIG_FILES.map(f => path.join(CONFIG_DIR, f));
+      // Fall back to single config if directory doesn't exist
+      if (!fs.existsSync(CONFIG_DIR)) {
+        this.configPaths = [DEFAULT_CONFIG_PATH];
+      }
+    }
     this.logger = new Logger(options.logPrefix || '[ModelManager]');
 
     // In-memory storage
@@ -172,30 +196,69 @@ export class ModelManager {
   }
 
   /**
-   * Load and parse models.yml configuration file
+   * Load and parse models.yml configuration file(s)
+   * Supports multiple config files - later configs override earlier ones
    * @returns {boolean} True if config loaded successfully
    */
   loadConfig() {
     try {
-      this.logger.info(`Loading configuration from: ${this.configPath}`);
+      this.logger.info(`Loading configuration from ${this.configPaths.length} file(s)`);
 
-      // Check if file exists
-      if (!fs.existsSync(this.configPath)) {
-        throw new Error(`Configuration file not found: ${this.configPath}`);
+      // Merge all configs
+      let mergedConfig = { models: {}, upscalers: {} };
+      const loadedFiles = [];
+
+      for (const configPath of this.configPaths) {
+        // Check if file exists
+        if (!fs.existsSync(configPath)) {
+          this.logger.warn(`Configuration file not found: ${configPath} - skipping`);
+          continue;
+        }
+
+        // Read and parse YAML
+        const fileContent = fs.readFileSync(configPath, 'utf8');
+        const config = yaml.load(fileContent);
+
+        if (!config || typeof config !== 'object') {
+          this.logger.warn(`Invalid configuration in ${configPath} - skipping`);
+          continue;
+        }
+
+        // Merge models (later configs override)
+        if (config.models) {
+          Object.assign(mergedConfig.models, config.models);
+        }
+
+        // Merge upscalers
+        if (config.upscalers) {
+          Object.assign(mergedConfig.upscalers, config.upscalers);
+        }
+
+        // Capture default settings (last one wins)
+        if (config.default_model) {
+          mergedConfig.default_model = config.default_model;
+        }
+        if (config.default) {
+          mergedConfig.default_model = config.default;
+        }
+        if (config.default_models) {
+          mergedConfig.default_models = { ...mergedConfig.default_models, ...config.default_models };
+        }
+
+        loadedFiles.push(configPath);
+        this.logger.debug(`Loaded configuration from: ${configPath}`);
       }
 
-      // Read and parse YAML
-      const fileContent = fs.readFileSync(this.configPath, 'utf8');
-      const config = yaml.load(fileContent);
-
-      if (!config || typeof config !== 'object') {
-        throw new Error('Invalid configuration: empty or not an object');
+      if (loadedFiles.length === 0) {
+        throw new Error('No valid configuration files found');
       }
+
+      this.logger.info(`Loaded ${loadedFiles.length} configuration file(s)`);
 
       // Parse default model configuration
       // Support both legacy 'default' and new 'default_model' and 'default_models'
-      this.defaultModelId = config.default_model || config.default || null;
-      this.defaultModels = config.default_models || null;
+      this.defaultModelId = mergedConfig.default_model || null;
+      this.defaultModels = mergedConfig.default_models || null;
 
       this.logger.info(`Default model: ${this.defaultModelId || 'none'}`);
       if (this.defaultModels) {
@@ -203,7 +266,7 @@ export class ModelManager {
       }
 
       // Parse models
-      const modelsConfig = config.models || {};
+      const modelsConfig = mergedConfig.models || {};
       this.models.clear();
 
       for (const [modelId, modelConfig] of Object.entries(modelsConfig)) {
@@ -238,6 +301,42 @@ export class ModelManager {
         } else if (!Array.isArray(modelConfig.args)) {
           this.logger.warn(`Model "${modelId}" args is not an array, converting`);
           modelConfig.args = [modelConfig.args];
+        }
+
+        // Auto-fill api field from port for server mode if not present
+        if (modelConfig.exec_mode === ExecMode.SERVER && modelConfig.port && !modelConfig.api) {
+          modelConfig.api = `http://127.0.0.1:${modelConfig.port}/v1`;
+          this.logger.debug(`Model "${modelId}": auto-filled api field as ${modelConfig.api}`);
+        }
+
+        // Auto-add --listen-port from port field for server mode if not in args
+        if (modelConfig.exec_mode === ExecMode.SERVER && modelConfig.port) {
+          const listenPortIdx = modelConfig.args.findIndex(arg =>
+            arg === '--listen-port' || arg === '-l' || arg.startsWith('--listen-port=')
+          );
+          // Only add if --listen-port is not already in args
+          if (listenPortIdx === -1) {
+            // Check if -l flag exists (short form)
+            const lFlagIdx = modelConfig.args.indexOf('-l');
+            if (lFlagIdx === -1) {
+              // Neither --listen-port nor -l found, add both
+              modelConfig.args.push('-l');
+              modelConfig.args.push('127.0.0.1');
+              modelConfig.args.push('--listen-port');
+              modelConfig.args.push(String(modelConfig.port));
+              this.logger.debug(`Model "${modelId}": auto-added --listen-port ${modelConfig.port} to args`);
+            } else {
+              // -l exists, check if port follows it
+              if (modelConfig.args[lFlagIdx + 1] && !modelConfig.args[lFlagIdx + 1].match(/^\d+$/)) {
+                // -l is followed by a host address, check if --listen-port follows
+                if (!modelConfig.args.includes('--listen-port')) {
+                  // Insert --listen-port after the host address
+                  modelConfig.args.splice(lFlagIdx + 2, 0, '--listen-port', String(modelConfig.port));
+                  this.logger.debug(`Model "${modelId}": auto-added --listen-port ${modelConfig.port} after -l 127.0.0.1`);
+                }
+              }
+            }
+          }
         }
 
         // Ensure capabilities is an array, default to text-to-image if not specified

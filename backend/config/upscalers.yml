@@ -1,0 +1,34 @@
+# ==================== Upscalers ====================
+# Upscaler models for image enhancement
+upscalers:
+  realesrgan-x4plus:
+    name: "RealESRGAN 4x+"
+    description: "RealESRGAN x4 upscaler for general photo enhancement"
+    model_path: "./models/RealESRGAN_x4plus.pth"
+    model_name: "RealESRGAN"
+    scale: 4
+    type: "realesrgan"
+
+  resize-lanczos:
+    name: "Resize Lanczos"
+    description: "Lanczos resampling algorithm for basic upscaling"
+    model_name: "Resize"
+    scale: 1  # Variable scale
+    type: "resize"
+    method: "lanczos"
+
+  resize-bicubic:
+    name: "Resize Bicubic"
+    description: "Bicubic interpolation for basic upscaling"
+    model_name: "Resize"
+    scale: 1  # Variable scale
+    type: "resize"
+    method: "bicubic"
+
+  resize-nearest:
+    name: "Resize Nearest"
+    description: "Nearest neighbor interpolation for pixel art upscaling"
+    model_name: "Resize"
+    scale: 1  # Variable scale
+    type: "resize"
+    method: "nearest"

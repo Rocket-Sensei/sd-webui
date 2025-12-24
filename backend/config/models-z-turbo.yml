@@ -1,0 +1,44 @@
+# Models configuration
+models:
+  # ==================== Z-Image Turbo (Server Mode) ====================
+  # NOTE: Z-Image-Turbo is a distilled model that does not rely on classifier-free guidance.
+  # Recommended settings: cfg_scale=0.0-1.0 (typically 0.0), steps=4-9 (typically 9)
+  z-image-turbo:
+    name: "Z-Image Turbo"
+    description: "Z-Image Turbo - fast text-to-image model with 4GB VRAM support"
+    capabilities: ["text-to-image"]
+    mode: "on_demand"
+    command: "./bin/sd-server"
+    port: 1238
+    args:
+      - "--diffusion-model"
+      - "./models/z_image_turbo-Q8_0.gguf"
+      - "--vae"
+      - "./models/ae.safetensors"
+      - "--llm"
+      - "./models/Qwen2.5-VL-7B-Instruct-Q8_0.gguf"
+      - "--llm_vision"
+      - "./models/Qwen2.5-VL-7B-Instruct.mmproj-f16.gguf"
+      - "-v"
+      - "--offload-to-cpu"
+      - "--diffusion-fa"
+    exec_mode: "server"
+    model_type: "text-to-image"
+    default_size: "1024x1024"
+    # Model-specific default parameters for z-image-turbo
+    # These are applied when this model is selected
+    generation_params:
+      cfg_scale: 0.0  # Z-Image-Turbo doesn't rely on classifier-free guidance
+      sample_steps: 9  # Ultra-fast distilled model, uses 4-9 steps
+      sampling_method: "euler"
+    huggingface:
+      repo: "leejet/Z-Image-Turbo-GGUF"
+      files:
+        - path: "z_image_turbo-Q8_0.gguf"
+          dest: "./models/"
+        - path: "ae.safetensors"
+          dest: "./models/"
+          repo: "black-forest-labs/FLUX.1-schnell"
+        - path: "Qwen3-4B-Instruct-2507-Q8_0.gguf"
+          dest: "./models/"
+          repo: "unsloth/Qwen3-4B-Instruct-2507-GGUF"

@@ -1,0 +1,9 @@
+# Global model settings
+# Default model configuration
+# Supports separate defaults for different generation types
+
+default_model: qwen-image
+
+default_models:
+  text_to_image: qwen-image
+  image_to_image: qwen-image-edit-2511-q4-0

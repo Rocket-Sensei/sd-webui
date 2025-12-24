@@ -17,6 +17,7 @@ import {
   Wifi,
   WifiOff,
   Cpu,
+  RefreshCw,
 } from "lucide-react";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
@@ -188,7 +189,7 @@ export function UnifiedQueue({ onCreateMore }) {
   // WebSocket connection for real-time updates
   const { isConnected: isWsConnected } = useWebSocket({
     channels: [WS_CHANNELS.QUEUE, WS_CHANNELS.GENERATIONS],
-    onMessage: (message) => {
+    onMessage: useCallback((message) => {
       // Refresh generations when receiving relevant WebSocket messages
       if (message.channel === WS_CHANNELS.QUEUE) {
         // Queue updates: job_created, job_updated, job_completed, job_failed
@@ -203,14 +204,14 @@ export function UnifiedQueue({ onCreateMore }) {
           fetchGenerations();
         }
       }
-    },
-    onConnectionChange: (isConnected) => {
+    }, [fetchGenerations]),
+    onConnectionChange: useCallback((isConnected) => {
       if (isConnected) {
         console.log('[UnifiedQueue] WebSocket connected');
       } else {
         console.log('[UnifiedQueue] WebSocket disconnected');
       }
-    },
+    }, []),
   });
 
   // Initial fetch on mount
@@ -244,6 +245,72 @@ export function UnifiedQueue({ onCreateMore }) {
         fetchGenerations();
       } else {
         throw new Error("Failed to delete");
+      }
+    } catch (error) {
+      toast.error(error.message);
+    }
+  };
+
+  const handleRetry = async (generation) => {
+    try {
+      const endpoint = generation.type === 'edit'
+        ? '/api/queue/edit'
+        : generation.type === 'variation'
+        ? '/api/queue/variation'
+        : '/api/queue/generate';
+
+      let body;
+      let headers = {};
+
+      if ((generation.type === 'edit' || generation.type === 'variation') && generation.input_image_path) {
+        // For edit/variation, we need to send the image file
+        // Since we only have the path, we'll need to fetch the image first
+        const imageResponse = await fetch(generation.input_image_path);
+        if (!imageResponse.ok) {
+          throw new Error("Failed to fetch input image");
+        }
+        const blob = await imageResponse.blob();
+        const file = new File([blob], 'input.png', { type: 'image/png' });
+
+        const formData = new FormData();
+        formData.append('image', file);
+        formData.append('prompt', generation.prompt || '');
+        formData.append('negative_prompt', generation.negative_prompt || '');
+        formData.append('model', generation.model);
+        formData.append('size', generation.size || '512x512');
+        if (generation.seed) formData.append('seed', generation.seed);
+        if (generation.cfg_scale) formData.append('cfg_scale', generation.cfg_scale);
+        if (generation.sampling_method) formData.append('sampling_method', generation.sampling_method);
+        if (generation.sample_steps) formData.append('sample_steps', generation.sample_steps);
+        if (generation.clip_skip) formData.append('clip_skip', generation.clip_skip);
+
+        body = formData;
+      } else {
+        headers['Content-Type'] = 'application/json';
+        body = JSON.stringify({
+          prompt: generation.prompt || '',
+          negative_prompt: generation.negative_prompt || '',
+          model: generation.model,
+          size: generation.size || '512x512',
+          seed: generation.seed,
+          cfg_scale: generation.cfg_scale,
+          sampling_method: generation.sampling_method,
+          sample_steps: generation.sample_steps,
+          clip_skip: generation.clip_skip,
+        });
+      }
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body
+      });
+
+      if (response.ok) {
+        toast.success("Generation requeued");
+        fetchGenerations();
+      } else {
+        throw new Error("Failed to retry");
       }
     } catch (error) {
       toast.error(error.message);
@@ -451,15 +518,15 @@ export function UnifiedQueue({ onCreateMore }) {
                       Download
                     </Button>
                   ) : (
-                    // Remove button for failed/cancelled
+                    // Retry button for failed/cancelled
                     <Button
-                      variant="outline"
+                      variant="default"
                       size="sm"
                       className="flex-1"
-                      onClick={() => handleDelete(generation.id)}
+                      onClick={() => handleRetry(generation)}
                     >
-                      <Trash2 className="h-3 w-3 mr-1" />
-                      Remove
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Retry
                     </Button>
                   )}
                   {generation.status === GENERATION_STATUS.COMPLETED && onCreateMore && (

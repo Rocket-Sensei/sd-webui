@@ -8,6 +8,31 @@ default_models:
 # Models configuration
 models:
   # ==================== Qwen Image Models (Server Mode) ====================
+  qwen-image-cli:
+    name: "Qwen Image - CLI mode"
+    description: "Qwen Image used via sd-cli"
+    default: true
+    capabilities: ["text-to-image"]
+    # Server mode command
+    command: "./bin/sd-cli"
+    args:
+      - "--diffusion-model"
+      - "./models/Qwen_Image-Q4_K_M.gguf"
+      - "--vae"
+      - "./models/qwen_image_vae.safetensors"
+      - "--qwen2vl"
+      - "./models/Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf"
+      - "-v"
+      - "--offload-to-cpu"
+      - "--diffusion-fa"
+      - "--flow-shift"
+      - "3"
+    api: "http://127.0.0.1:1400/v1"
+    mode: "on_demand"
+    exec_mode: "cli"
+    model_type: "text-to-image"
+    default_size: "1024x1024"
+
   qwen-image:
     name: "Qwen Image"
     description: "Qwen Image - advanced text-to-image model with complex text rendering and precise image editing capabilities"
@@ -19,26 +44,22 @@ models:
       - "-l"
       - "127.0.0.1"
       - "--listen-port"
-      - "1236"
+      - "1400"
       - "--diffusion-model"
       - "./models/Qwen_Image-Q4_K_M.gguf"
       - "--vae"
       - "./models/qwen_image_vae.safetensors"
       - "--qwen2vl"
       - "./models/Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf"
-      - "--cfg-scale"
-      - "2.5"
-      - "--sampling-method"
-      - "euler"
       - "-v"
       - "--offload-to-cpu"
       - "--diffusion-fa"
       - "--flow-shift"
       - "3"
-    api: "http://127.0.0.1:1236/v1"
+    api: "http://127.0.0.1:1400/v1"
     mode: "on_demand"
     exec_mode: "server"
-    port: 1236
+    port: 1400
     model_type: "text-to-image"
     default_size: "1024x1024"
     huggingface:
@@ -54,6 +75,123 @@ models:
           dest: "./models/"
           repo: "mradermacher/Qwen2.5-VL-7B-Instruct-GGUF"
 
+  qwen-image-edit-2511-q4-0:
+    name: "Qwen Image Edit 2511 Q4_0"
+    capabilities: ["image-to-image", "text-to-image"]
+    command: "./bin/sd-server"
+    args:
+      - "-l"
+      - "127.0.0.1"
+      - "--listen-port"
+      - "1401"
+      - "--diffusion-model"
+      - "./models/qwen-image-edit-2511-Q4_0.gguf"
+      - "--vae"
+      - "./models/qwen_image_vae.safetensors"
+      - "--llm"
+      - "./models/Qwen2.5-VL-7B-Instruct.Q8_0.gguf"
+      - "--llm_vision"
+      - "./models/Qwen2.5-VL-7B-Instruct.mmproj-f16.gguf"
+      - "-v"
+      - "--offload-to-cpu"
+      - "--diffusion-fa"
+      - "--flow-shift"
+      - "3"
+    api: "http://127.0.0.1:1401/v1"
+    mode: "on_demand"
+    exec_mode: "server"
+    port: 1401
+    model_type: "image-to-image"
+    default_size: "1024x1024"
+
+  qwen-image-edit-2511-q5-0:
+    name: "Qwen Image Edit 2511 Q5_0"
+    capabilities: ["image-to-image", "text-to-image"]
+    command: "./bin/sd-server"
+    args:
+      - "-l"
+      - "127.0.0.1"
+      - "--listen-port"
+      - "1402"
+      - "--diffusion-model"
+      - "./models/qwen-image-edit-2511-Q5_0.gguf"
+      - "--vae"
+      - "./models/qwen_image_vae.safetensors"
+      - "--llm"
+      - "./models/Qwen2.5-VL-7B-Instruct.Q8_0.gguf"
+      - "--llm_vision"
+      - "./models/Qwen2.5-VL-7B-Instruct.mmproj-f16.gguf"
+      - "-v"
+      - "--offload-to-cpu"
+      - "--diffusion-fa"
+      - "--flow-shift"
+      - "3"
+    api: "http://127.0.0.1:1402/v1"
+    mode: "on_demand"
+    exec_mode: "server"
+    port: 1402
+    model_type: "image-to-image"
+    default_size: "1024x1024"
+
+  qwen-image-edit-2511-q5-1:
+    name: "Qwen Image Edit 2511 Q5_1"
+    capabilities: ["image-to-image", "text-to-image"]
+    command: "./bin/sd-server"
+    args:
+      - "-l"
+      - "127.0.0.1"
+      - "--listen-port"
+      - "1403"
+      - "--diffusion-model"
+      - "./models/qwen-image-edit-2511-Q5_1.gguf"
+      - "--vae"
+      - "./models/qwen_image_vae.safetensors"
+      - "--llm"
+      - "./models/Qwen2.5-VL-7B-Instruct.Q8_0.gguf"
+      - "--llm_vision"
+      - "./models/Qwen2.5-VL-7B-Instruct.mmproj-f16.gguf"
+      - "-v"
+      - "--offload-to-cpu"
+      - "--diffusion-fa"
+      - "--flow-shift"
+      - "3"
+    api: "http://127.0.0.1:1403/v1"
+    mode: "on_demand"
+    exec_mode: "server"
+    port: 1403
+    model_type: "image-to-image"
+    default_size: "1024x1024"
+
+  qwen-image-edit-2511-q2-k:
+    name: "Qwen Image Edit 2511 Q2_K"
+    capabilities: ["image-to-image", "text-to-image"]
+    command: "./bin/sd-server"
+    args:
+      - "-l"
+      - "127.0.0.1"
+      - "--listen-port"
+      - "1404"
+      - "--diffusion-model"
+      - "./models/qwen-image-edit-2511-Q2_K.gguf"
+      - "--vae"
+      - "./models/qwen_image_vae.safetensors"
+      - "--llm"
+      - "./models/Qwen2.5-VL-7B-Instruct.Q8_0.gguf"
+      - "--llm_vision"
+      - "./models/Qwen2.5-VL-7B-Instruct.mmproj-f16.gguf"
+      - "-v"
+      - "--offload-to-cpu"
+      - "--diffusion-fa"
+      - "--flow-shift"
+      - "3"
+    api: "http://127.0.0.1:1404/v1"
+    mode: "on_demand"
+    exec_mode: "server"
+    port: 1404
+    model_type: "image-to-image"
+    default_size: "1024x1024"
+
+
   qwen-image-edit:
     name: "Qwen Image Edit"
     description: "Qwen Image Edit - image-to-image editing model with object manipulation and style transformation"
@@ -63,40 +201,26 @@ models:
       - "-l"
       - "127.0.0.1"
       - "--listen-port"
-      - "1237"
+      - "1405"
       - "--diffusion-model"
       - "./models/Qwen-Image-Edit-2509-Q4_K_M.gguf"
       - "--vae"
       - "./models/qwen_image_vae.safetensors"
-      - "--qwen2vl"
-      - "./models/Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf"
-      - "--cfg-scale"
-      - "2.5"
-      - "--sampling-method"
-      - "euler"
+      - "--llm"
+      - "./models/Qwen2.5-VL-7B-Instruct.Q8_0.gguf"
+      - "--llm_vision"
+      - "./models/Qwen2.5-VL-7B-Instruct.mmproj-f16.gguf"
       - "-v"
       - "--offload-to-cpu"
       - "--diffusion-fa"
       - "--flow-shift"
       - "3"
-    api: "http://127.0.0.1:1237/v1"
+    api: "http://127.0.0.1:1405 /v1"
     mode: "on_demand"
     exec_mode: "server"
-    port: 1237
+    port: 1405
     model_type: "image-to-image"
     default_size: "1024x1024"
-    huggingface:
-      repo: "QuantStack/Qwen-Image-GGUF"
-      files:
-        - path: "Qwen-Image-Edit-2509-Q4_K_M.gguf"
-          dest: "./models/"
-        - path: "qwen_image_vae.safetensors"
-          dest: "./models/"
-          repo: "Comfy-Org/Qwen-Image_ComfyUI"
-          subpath: "split_files/vae"
-        - path: "Qwen2.5-VL-7B-Instruct.Q4_K_M.gguf"
-          dest: "./models/"
-          repo: "mradermacher/Qwen2.5-VL-7B-Instruct-GGUF"
 
   # ==================== Z-Image Turbo (CLI Mode) ====================
   # NOTE: Z-Image-Turbo is a distilled model that does not rely on classifier-free guidance.
@@ -118,7 +242,9 @@ models:
       - "--vae"
       - "./models/ae.safetensors"
       - "--llm"
-      - "./models/Qwen3-4B-Instruct-2507-Q8_0.gguf"
+      - "./models/Qwen2.5-VL-7B-Instruct.Q8_0.gguf"
+      - "--llm_vision"
+      - "./models/Qwen2.5-VL-7B-Instruct.mmproj-f16.gguf"
       - "-v"
       - "--offload-to-cpu"
       - "--diffusion-fa"
@@ -159,15 +285,9 @@ models:
       - "./models/ae.safetensors"
       - "--llm"
       - "./models/Qwen3-4B-Instruct-2507-Q8_0.gguf"
-      - "-p"
-      - "A cinematic photograph"
       - "-v"
       - "--offload-to-cpu"
       - "--diffusion-fa"
-      - "-H"
-      - "1024"
-      - "-W"
-      - "1024"
     api: null  # CLI mode
     mode: "on_demand"
     exec_mode: "cli"
@@ -197,13 +317,13 @@ models:
 
   # ==================== Flux Models ====================
   fluxed-up-flux:
-    name: "FluxedUp Flux NSFW"
+    name: "FluxedUp Flux"
     description: "High quality flux model with NSFW support"
     capabilities: ["text-to-image"]
     command: "./bin/sd-server"
     args:
       - "-l"
-      - "0.0.0.0"
+      - "127.0.0.1"
       - "--diffusion-model"
       - "./models/fluxedUpFluxNSFW_v51Q4KSV2.gguf"
       - "--vae"
@@ -212,12 +332,6 @@ models:
       - "./models/clip_l.safetensors"
       - "--t5xxl"
       - "./models/t5xxl_fp16.safetensors"
-      - "-p"
-      - "a lovely cat holding a sign says 'flux.cpp'"
-      - "--cfg-scale"
-      - "1.0"
-      - "--sampling-method"
-      - "euler"
       - "-v"
       - "--clip-on-cpu"
     api: "http://localhost:1234/v1"
@@ -226,11 +340,31 @@ models:
     port: 1234
     model_type: "text-to-image"
     default_size: "1024x1024"
-    huggingface:
-      repo: "gel基础/fluxedUpFluxNSFW_v51Q4KSV2"
-      files:
-        - path: "fluxedUpFluxNSFW_v51Q4KSV2.gguf"
-          dest: "./models/"
+
+  fux-capacity:
+    name: "fuxCapacityNSFW"
+    description: "High quality flux model with NSFW support"
+    capabilities: ["text-to-image"]
+    command: "./bin/sd-server"
+    args:
+      - "-l"
+      - "127.0.0.1"
+      - "--diffusion-model"
+      - "./models/fuxCapacityNSFWPornFlux_30FP8.safetensors"
+      - "--vae"
+      - "./models/ae.safetensors"
+      - "--clip_l"
+      - "./models/clip_l.safetensors"
+      - "--t5xxl"
+      - "./models/t5xxl_fp16.safetensors"
+      - "-v"
+      - "--clip-on-cpu"
+    api: "http://localhost:1234/v1"
+    mode: "on_demand"
+    exec_mode: "server"
+    port: 1234
+    model_type: "text-to-image"
+    default_size: "1024x1024"
 
   # ==================== Stable Diffusion Models ====================
   sd15-base:
@@ -242,7 +376,7 @@ models:
       - "-l"
       - "0.0.0.0"
       - "--model"
-      - "./models/v1-5-pruned-emaonly.ckpt"
+      - "./models/v1-5-pruned-emaonly-fp16.safetensors"
       - "--port"
       - "1235"
     api: "http://localhost:1235/v1"
@@ -254,7 +388,7 @@ models:
     huggingface:
       repo: "runwayml/stable-diffusion-v1-5"
       files:
-        - path: "v1-5-pruned-emaonly.ckpt"
+        - path: "v1-5-pruned-emaonly-fp16.safetensors"
           dest: "./models/"
 
   sdxl-turbo:
@@ -285,8 +419,8 @@ models:
     capabilities: ["text-to-image"]
     command: null  # No command needed for API mode
     args: []
-    api: ""  # External API endpoint
-    api_key: ""
+    api: "http://example.com"  # External API endpoint
+    api_key: "example"
     mode: "on_demand"  # Load strategy - always on demand for API mode
     exec_mode: "api"  # Execution mode - no local server
     model_type: "text-to-image"

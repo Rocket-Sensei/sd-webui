@@ -1,10 +1,8 @@
 import { useEffect, useState, useCallback } from "react";
-import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
-import { TextToImage } from "./components/TextToImage";
-import { ImageToImage } from "./components/ImageToImage";
-import { Upscaler } from "./components/Upscaler";
+import { Generate } from "./components/Generate";
 import { UnifiedQueue } from "./components/UnifiedQueue";
 import { ModelManager } from "./components/ModelManager";
 import { Navigation } from "./components/Navigation";
@@ -12,7 +10,6 @@ import { useGenerations } from "./hooks/useImageGeneration";
 
 function App() {
   const navigate = useNavigate();
-  const location = useLocation();
   const [createMoreSettings, setCreateMoreSettings] = useState(null);
   const [currentModel, setCurrentModel] = useState(null);
   const { fetchGenerations } = useGenerations();
@@ -29,7 +26,7 @@ function App() {
 
   const handleCreateMore = useCallback((generation) => {
     setCreateMoreSettings(generation);
-    navigate("/text-to-image");
+    navigate("/generate");
   }, [navigate]);
 
   return (
@@ -54,35 +51,15 @@ function App() {
       <main className="container mx-auto px-4 py-8">
         <Routes>
           <Route
-            path="/text-to-image"
+            path="/generate"
             element={
               <div className="max-w-2xl mx-auto">
-                <TextToImage
+                <Generate
                   onGenerated={handleGenerated}
                   settings={createMoreSettings}
                   selectedModel={currentModel}
                   onModelChange={setCurrentModel}
                 />
-              </div>
-            }
-          />
-          <Route
-            path="/image-to-image"
-            element={
-              <div className="max-w-2xl mx-auto">
-                <ImageToImage
-                  onGenerated={handleGenerated}
-                  selectedModel={currentModel}
-                  onModelChange={setCurrentModel}
-                />
-              </div>
-            }
-          />
-          <Route
-            path="/upscale"
-            element={
-              <div className="max-w-2xl mx-auto">
-                <Upscaler />
               </div>
             }
           />
@@ -102,8 +79,8 @@ function App() {
               </div>
             }
           />
-          {/* Default route - redirect to /text-to-image */}
-          <Route path="/" element={<Navigate to="/text-to-image" replace />} />
+          {/* Default route - redirect to /generate */}
+          <Route path="/" element={<Navigate to="/generate" replace />} />
         </Routes>
       </main>
 
