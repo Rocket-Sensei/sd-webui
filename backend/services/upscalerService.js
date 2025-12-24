@@ -1,36 +1,73 @@
-import { readFile } from 'fs/promises';
-import { join, resolve } from 'path';
+import { readFile, writeFile, unlink } from 'fs/promises';
+import { join, resolve, dirname } from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { existsSync } from 'fs';
 
 const execAsync = promisify(exec);
 
 /**
  * Upscaler Service
- * Handles image upscaling operations using various upscalers
+ * Handles image upscaling operations using SD.cpp's built-in RealESRGAN
+ * SD.cpp includes a pure C++ implementation of RealESRGAN - no Python needed
  */
 
-// Get project root
-const projectRoot = resolve(process.cwd(), '..');
+// Get paths - backend directory is where this service runs
+const backendDir = dirname(new URL(import.meta.url).pathname);
+const projectRoot = resolve(backendDir, '..');
+const sdCliPath = join(projectRoot, 'sdcpp', 'bin', 'sd-cli');
 
 /**
  * Get list of available upscalers
+ * Returns upscalers compatible with SD.next API format
  */
 export function getAvailableUpscalers() {
-  return [
-    {
+  const upscalers = [];
+
+  // Check for RealESRGAN models in the models directory
+  const modelsDir = join(projectRoot, 'models');
+
+  // RealESRGAN_x4plus.pth - the standard 4x upscaler
+  if (existsSync(join(modelsDir, 'RealESRGAN_x4plus.pth'))) {
+    upscalers.push({
       name: 'RealESRGAN 4x+',
       model_name: 'RealESRGAN',
-      model_path: join(projectRoot, 'models/RealESRGAN_x4plus.pth'),
+      model_path: join(modelsDir, 'RealESRGAN_x4plus.pth'),
       model_url: null,
       scale: 4
-    },
+    });
+  }
+
+  // RealESRGAN_x2plus.pth - 2x upscaler
+  if (existsSync(join(modelsDir, 'RealESRGAN_x2plus.pth'))) {
+    upscalers.push({
+      name: 'RealESRGAN 2x+',
+      model_name: 'RealESRGAN',
+      model_path: join(modelsDir, 'RealESRGAN_x2plus.pth'),
+      model_url: null,
+      scale: 2
+    });
+  }
+
+  // Anime upscaler
+  if (existsSync(join(modelsDir, 'RealESRGAN_x4plus_anime_6B.pth'))) {
+    upscalers.push({
+      name: 'RealESRGAN 4x Anime',
+      model_name: 'RealESRGAN',
+      model_path: join(modelsDir, 'RealESRGAN_x4plus_anime_6B.pth'),
+      model_url: null,
+      scale: 4
+    });
+  }
+
+  // Always add resize options (basic interpolation via sharp)
+  upscalers.push(
     {
       name: 'Resize Lanczos',
       model_name: 'Resize',
       model_path: null,
       model_url: null,
-      scale: 1
+      scale: 1 // Variable scale
     },
     {
       name: 'Resize Bicubic',
@@ -46,7 +83,9 @@ export function getAvailableUpscalers() {
       model_url: null,
       scale: 1
     }
-  ];
+  );
+
+  return upscalers;
 }
 
 /**
@@ -104,7 +143,7 @@ export async function upscaleImage(imageInput, options = {}) {
       : imageInput;
     imageBuffer = Buffer.from(base64Data, 'base64');
   } else if (Buffer.isBuffer(imageInput)) {
-    imageBuffer = imageInput;
+    imageBuffer = imageBuffer;
   } else {
     throw new Error('Invalid image input: must be Buffer or base64 string');
   }
@@ -134,7 +173,7 @@ export async function upscaleImage(imageInput, options = {}) {
   let resultBuffer;
 
   if (upscaler1.model_name === 'RealESRGAN') {
-    resultBuffer = await upscaleWithRealESRGAN(imageBuffer, targetWidth, targetHeight, upscaler1.model_path);
+    resultBuffer = await upscaleWithSDcpp(imageBuffer, upscaler1.model_path);
   } else if (upscaler1.model_name === 'Resize') {
     const method = upscaler1.name.toLowerCase().includes('lanczos') ? 'lanczos'
       : upscaler1.name.toLowerCase().includes('bicubic') ? 'bicubic'
@@ -193,70 +232,71 @@ async function getImageDimensions(buffer) {
 }
 
 /**
- * Upscale image using RealESRGAN via Python
+ * Upscale image using SD.cpp's built-in RealESRGAN
+ * SD.cpp has a pure C++ implementation - no Python needed
+ *
+ * Command: sd-cli -M upscale --upscale-model <model> --init-img <input> -o <output>
  */
-async function upscaleWithRealESRGAN(imageBuffer, targetWidth, targetHeight, modelPath) {
-  const { writeFile, unlink } = await import('fs/promises');
+async function upscaleWithSDcpp(imageBuffer, modelPath) {
   const { tmpdir } = await import('os');
-  const { join } = await import('path');
-
-  const tempInputPath = join(tmpdir(), `upscale_input_${Date.now()}.png`);
-  const tempOutputPath = join(tmpdir(), `upscale_output_${Date.now()}.png`);
+  const timestamp = Date.now();
+  const tempInputPath = join(tmpdir(), `sd_upscale_input_${timestamp}.png`);
+  const tempOutputPath = join(tmpdir(), `sd_upscale_output_${timestamp}.png`);
 
   try {
     // Write input image
     await writeFile(tempInputPath, imageBuffer);
 
-    // Resolve model path relative to project root
-    const resolvedModelPath = resolve(projectRoot, 'models/RealESRGAN_x4plus.pth');
-
-    // Use Python subprocess to call RealESRGAN
-    // Check if we have the RealESRGAN script available
-    const pythonScript = `
-import sys
-sys.path.insert(0, './sd-next')
-from basicsr.archs.rrdbnet_arch import RRDBNet
-from realesrgan import RealESRGANer
-from cv2 import imread, imwrite, IMREAD_UNCHANGED
-import numpy as np
-
-# Initialize model
-model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
-upsampler = RealESRGANer(
-    scale=4,
-    model_path='${resolvedModelPath}',
-    model=model,
-    tile=0,
-    tile_pad=10,
-    pre_pad=0,
-    half=False
-)
-
-# Read and upscale image
-img = imread('${tempInputPath}', IMREAD_UNCHANGED)
-output, _ = upsampler.enhance(img, outscale=${targetWidth / 512})
-imwrite('${tempOutputPath}', output)
-`;
-
-    const scriptPath = join(tmpdir(), `upscale_script_${Date.now()}.py`);
-    await writeFile(scriptPath, pythonScript);
-
-    try {
-      await execAsync(`python3 ${scriptPath}`);
-      const result = await readFile(tempOutputPath);
-      return result;
-    } catch (execError) {
-      // If RealESRGAN is not available, fall back to basic resize
-      console.warn('RealESRGAN not available, falling back to resize:', execError.message);
-      return await resizeImage(imageBuffer, targetWidth, targetHeight, 'lanczos');
+    // Check if sd-cli exists
+    if (!existsSync(sdCliPath)) {
+      console.warn(`SD.cpp CLI not found at ${sdCliPath}, falling back to resize`);
+      const dims = await getImageDimensions(imageBuffer);
+      return await resizeImage(imageBuffer, dims.width * 4, dims.height * 4, 'lanczos');
     }
+
+    // Build SD.cpp command
+    // sd-cli -M upscale --upscale-model <model> --init-img <input> -o <output> [options]
+    const args = [
+      '-M', 'upscale',
+      '--upscale-model', modelPath,
+      '--init-img', tempInputPath,
+      '-o', tempOutputPath,
+      '--upscale-tile-size', '128' // Default tile size for memory efficiency
+    ];
+
+    const command = `"${sdCliPath}" ${args.join(' ')}`;
+    console.log(`[Upscaler] Running: ${command}`);
+
+    const { stdout, stderr } = await execAsync(command, {
+      cwd: join(projectRoot, 'sdcpp'),
+      timeout: 120000 // 2 minute timeout
+    });
+
+    if (stderr && !stderr.includes('warning')) {
+      console.warn('[Upscaler] SD.cpp stderr:', stderr);
+    }
+
+    // Read the output image
+    if (!existsSync(tempOutputPath)) {
+      throw new Error('SD.cpp upscaling failed - no output file generated');
+    }
+
+    const result = await readFile(tempOutputPath);
+    console.log(`[Upscaler] Upscaled image size: ${result.length} bytes`);
+    return result;
+
+  } catch (execError) {
+    console.error('[Upscaler] SD.cpp upscaling error:', execError.message);
+
+    // Fallback to basic resize on error
+    const dims = await getImageDimensions(imageBuffer);
+    console.warn('[Upscaler] Falling back to Lanczos resize');
+    return await resizeImage(imageBuffer, dims.width * 4, dims.height * 4, 'lanczos');
   } finally {
     // Cleanup temp files
     try {
-      const { unlink } = await import('fs/promises');
       await unlink(tempInputPath);
       await unlink(tempOutputPath);
-      await unlink(scriptPath);
     } catch (e) {
       // Ignore cleanup errors
     }
@@ -264,7 +304,7 @@ imwrite('${tempOutputPath}', output)
 }
 
 /**
- * Resize image using basic interpolation
+ * Resize image using basic interpolation (via sharp)
  */
 async function resizeImage(imageBuffer, targetWidth, targetHeight, method = 'lanczos') {
   const sharp = (await import('sharp')).default;
@@ -290,20 +330,32 @@ async function blendImages(image1Buffer, image2Buffer, opacity) {
 
   const img1 = sharp(image1Buffer);
   const img2 = sharp(image2Buffer);
-  const { width, height } = await img1.metadata();
+  const metadata1 = await img1.metadata();
+  const metadata2 = await img2.metadata();
 
-  const img1Resized = await img1.resize(width, height).raw().toBuffer();
-  const img2Resized = await img2.resize(width, height).raw().toBuffer();
+  const width = metadata1.width || 512;
+  const height = metadata1.height || 512;
+  const channels1 = metadata1.channels || 4;
+  const channels2 = metadata2.channels || 4;
+
+  const img1Raw = await img1.raw().toBuffer();
+  const img2Raw = await img2.resize(width, height).raw().toBuffer();
 
   // Create blended buffer
-  const blended = Buffer.from(img1Resized);
-  for (let i = 0; i < blended.length; i++) {
-    blended[i] = Math.round(
-      img1Resized[i] * (1 - opacity) + img2Resized[i] * opacity
-    );
+  const blended = Buffer.from(img1Raw);
+  const minChannels = Math.min(channels1, channels2);
+  const pixelCount = width * height;
+
+  for (let i = 0; i < pixelCount; i++) {
+    for (let c = 0; c < minChannels; c++) {
+      const idx = i * Math.max(channels1, channels2) + c;
+      blended[idx] = Math.round(
+        img1Raw[idx] * (1 - opacity) + img2Raw[idx] * opacity
+      );
+    }
   }
 
-  return await sharp(blended, { raw: { width, height, channels: 4 } })
-    .png()
-    .toBuffer();
+  return await sharp(blended, {
+    raw: { width, height, channels: channels1 }
+  }).png().toBuffer();
 }
