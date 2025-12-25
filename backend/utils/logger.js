@@ -313,6 +313,9 @@ export function logCliCommand(command, args = [], options = {}) {
     shellCmd,
     eventType: 'cliCommand'
   }, `CLI: ${command}`);
+
+  // Flush immediately to ensure logs are written
+  sdCppLogger.flush();
 }
 
 /**
@@ -332,6 +335,9 @@ export function logCliOutput(stdout, stderr, exitCode) {
     stderr: stderr || undefined,
     eventType: 'cliOutput'
   }, `CLI exit code: ${exitCode}`);
+
+  // Flush immediately to ensure logs are written
+  sdCppLogger.flush();
 }
 
 /**
@@ -345,6 +351,9 @@ export function logCliError(error) {
     error: pino.stdSerializers.err(error),
     eventType: 'cliError'
   }, `CLI Error: ${error.message}`);
+
+  // Flush immediately to ensure logs are written
+  sdCppLogger.flush();
 }
 
 /**
