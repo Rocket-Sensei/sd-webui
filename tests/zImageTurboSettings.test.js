@@ -204,8 +204,8 @@ describe('CLI Handler Integration', () => {
   it('should pass cfg_scale and sample_steps to CLI command', () => {
     const source = getQueueProcessorSource();
 
-    // Verify params are passed to CLI handler
-    expect(source).toContain('processCLIGeneration(job, modelConfig, params)');
+    // Verify params are passed to CLI handler (updated signature includes genLogger)
+    expect(source).toContain('processCLIGeneration(job, modelConfig, params, genLogger)');
   });
 
   it('should build CLI command with cfg-scale and steps flags', () => {

@@ -8,6 +8,7 @@
  *
  * Environment variables:
  * - LOG_LEVEL: Minimum log level (default: 'info')
+ * - LOG_TO_STDOUT: Copy all logs to stdout (default: 'true')
  * - LOG_API_CALLS: Enable HTTP API request/response logging (default: 'true')
  * - LOG_CLI_CALLS: Enable CLI command execution logging (default: 'true')
  * - NODE_ENV: 'development' enables pretty printing to console
@@ -31,6 +32,13 @@ if (!fs.existsSync(logsDir)) {
 // Log levels
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true';
+
+/**
+ * Check if logging to stdout is enabled
+ */
+function isStdoutEnabled() {
+  return process.env.LOG_TO_STDOUT !== 'false' && process.env.LOG_TO_STDOUT !== '0';
+}
 
 /**
  * Check if API logging is enabled
@@ -68,8 +76,8 @@ function createBaseLogger() {
     { level: 'trace', stream: createFileDestination('app.log') },
   ];
 
-  // In development, also output to console
-  if (IS_DEVELOPMENT) {
+  // Also output to console if LOG_TO_STDOUT is enabled (default: true)
+  if (isStdoutEnabled()) {
     streams.push({
       level: LOG_LEVEL,
       stream: process.stdout,

@@ -15,8 +15,6 @@ import {
   Clock,
   XCircle,
   CheckCircle2,
-  Wifi,
-  WifiOff,
   Cpu,
   RefreshCw,
   Terminal,
@@ -28,7 +26,7 @@ import { Badge } from "./ui/badge";
 import { LogViewer } from "./LogViewer";
 import { useGenerations } from "../hooks/useImageGeneration";
 import { toast } from "sonner";
-import { useWebSocket, WS_CHANNELS } from "../hooks/useWebSocket";
+import { useWebSocket, WS_CHANNELS } from "../contexts/WebSocketContext";
 import { formatDate } from "../lib/utils";
 import { authenticatedFetch } from "../utils/api";
 
@@ -193,7 +191,7 @@ export function UnifiedQueue({ onCreateMore }) {
   }, [models]);
 
   // WebSocket connection for real-time updates
-  const { isConnected: isWsConnected } = useWebSocket({
+  useWebSocket({
     channels: [WS_CHANNELS.QUEUE, WS_CHANNELS.GENERATIONS],
     onMessage: useCallback((message) => {
       // Refresh generations when receiving relevant WebSocket messages
@@ -211,13 +209,6 @@ export function UnifiedQueue({ onCreateMore }) {
         }
       }
     }, [fetchGenerations]),
-    onConnectionChange: useCallback((isConnected) => {
-      if (isConnected) {
-        console.log('[UnifiedQueue] WebSocket connected');
-      } else {
-        console.log('[UnifiedQueue] WebSocket disconnected');
-      }
-    }, []),
   });
 
   // Initial fetch on mount
@@ -423,16 +414,6 @@ export function UnifiedQueue({ onCreateMore }) {
       <Card>
         <CardContent className="py-12">
           <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-4">
-              {isWsConnected ? (
-                <Wifi className="h-4 w-4 text-green-500" />
-              ) : (
-                <WifiOff className="h-4 w-4 text-muted-foreground" />
-              )}
-              <span className="text-xs text-muted-foreground">
-                {isWsConnected ? 'Real-time updates enabled' : 'Real-time updates disconnected'}
-              </span>
-            </div>
             <ImageIcon className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-semibold mb-2">No generations yet</h3>
             <p className="text-muted-foreground">
@@ -446,18 +427,6 @@ export function UnifiedQueue({ onCreateMore }) {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          {isWsConnected ? (
-            <Wifi className="h-4 w-4 text-green-500" title="Real-time updates enabled" />
-          ) : (
-            <WifiOff className="h-4 w-4 text-muted-foreground" title="Real-time updates disconnected" />
-          )}
-          <span className="text-xs text-muted-foreground">
-            {isWsConnected ? 'Live' : 'Offline'}
-          </span>
-        </div>
-      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {generations.map((generation) => {
           const config = getStatusConfig(generation.status);
