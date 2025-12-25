@@ -151,7 +151,9 @@ describe('WebSocket Integration Points', () => {
     const queueSource = readFileSync(join(__dirname, '../frontend/src/components/UnifiedQueue.jsx'), 'utf-8');
     expect(queueSource).toContain('useWebSocket');
     expect(queueSource).toContain('WS_CHANNELS');
-    expect(queueSource).toContain('isConnected');
+    // Should use useMemo for stable WebSocket options
+    expect(queueSource).toContain('webSocketOptions');
+    expect(queueSource).toContain('useMemo');
     // Should NOT have the old polling code
     expect(queueSource).not.toContain('setInterval(fetchGenerations, 3000)');
   });
