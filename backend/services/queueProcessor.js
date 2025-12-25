@@ -76,6 +76,7 @@ async function processQueue() {
 
   isProcessing = true;
   currentJob = job;
+  const startTime = Date.now();
 
   // Create generation-specific logger for this job
   const genLogger = createGenerationLogger(job.id, 'queueProcessor');
@@ -142,6 +143,11 @@ async function processQueue() {
     // Update status to completed (generation_id is now the same as job.id)
     updateGenerationStatus(job.id, GenerationStatus.COMPLETED);
 
+    // Calculate generation time
+    const endTime = Date.now();
+    const generationTimeMs = endTime - startTime;
+    const generationTimeSec = (generationTimeMs / 1000).toFixed(2);
+
     // Broadcast completion events
     broadcastQueueEvent({ ...job, status: GenerationStatus.COMPLETED }, 'job_completed');
     broadcastGenerationComplete({
@@ -153,11 +159,38 @@ async function processQueue() {
       imageCount: result?.imageCount || 0,
     });
 
-    logger.info({ jobId: job.id }, 'Job completed successfully');
-    genLogger.info({ imageCount: result?.imageCount || 0 }, 'Generation completed successfully');
+    logger.info({
+      jobId: job.id,
+      imageCount: result?.imageCount || 0,
+      generationTimeSec,
+      generationTimeMs,
+    }, 'Job completed successfully');
+    genLogger.info({
+      imageCount: result?.imageCount || 0,
+      generationTimeSec,
+      generationTimeMs,
+      result: 'completed',
+    }, 'Generation completed successfully');
   } catch (error) {
-    logger.error({ error, jobId: job.id }, 'Job failed');
-    genLogger.error({ error: error.message, stack: error.stack }, 'Generation failed');
+    // Calculate generation time even for failures
+    const endTime = Date.now();
+    const generationTimeMs = endTime - startTime;
+    const generationTimeSec = (generationTimeMs / 1000).toFixed(2);
+
+    logger.error({
+      error: error.message,
+      jobId: job.id,
+      generationTimeSec,
+      generationTimeMs,
+    }, 'Job failed');
+    genLogger.error({
+      error: error.message,
+      stack: error.stack,
+      generationTimeSec,
+      generationTimeMs,
+      result: 'failed',
+    }, 'Generation failed');
+
     updateGenerationStatus(job.id, GenerationStatus.FAILED, {
       error: error.message,
     });
