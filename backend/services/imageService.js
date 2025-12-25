@@ -1,7 +1,9 @@
 import { randomUUID } from 'crypto';
 import { createGeneration, createGeneratedImage } from '../db/queries.js';
 import { getModelManager } from './modelManager.js';
-import { loggedFetch } from '../utils/logger.js';
+import { loggedFetch, createLogger } from '../utils/logger.js';
+
+const logger = createLogger('imageService');
 
 const modelManager = getModelManager();
 const SD_API_ENDPOINT = process.env.SD_API_ENDPOINT || 'http://192.168.2.180:1234/v1';
@@ -22,8 +24,8 @@ export async function generateImageDirect(params, mode = 'generate') {
 
   // DEBUG: Log image buffer info for FormData
   if (isFormData && params.image) {
-    console.log(`[ImageService] Image buffer size: ${params.image.buffer.length}, mimetype: ${params.image.mimetype}`);
-    console.log(`[ImageService] Image buffer first 32 bytes (hex): ${params.image.buffer.slice(0, 32).toString('hex')}`);
+    logger.debug({ bufferSize: params.image.buffer.length, mimetype: params.image.mimetype }, 'Image buffer info');
+    logger.debug({ bufferHex: params.image.buffer.slice(0, 32).toString('hex') }, 'Image buffer first 32 bytes');
   }
 
   const extraArgsMatch = processedPrompt.match(/<sd_cpp_extra_args>(.*?)<\/sd_cpp_extra_args>/s);
@@ -32,7 +34,7 @@ export async function generateImageDirect(params, mode = 'generate') {
       extraArgs = JSON.parse(extraArgsMatch[1]);
       processedPrompt = processedPrompt.replace(/<sd_cpp_extra_args>.*?<\/sd_cpp_extra_args>/s, '').trim();
     } catch (e) {
-      console.error('Failed to parse extra args:', e);
+      logger.error({ error: e }, 'Failed to parse extra args');
     }
   }
 
@@ -115,7 +117,7 @@ export async function generateImageDirect(params, mode = 'generate') {
     modelConfig = modelManager.getModel(modelId);
     if (modelConfig && modelConfig.api) {
       baseEndpoint = modelConfig.api;
-      console.log(`[ImageService] Using model API endpoint: ${baseEndpoint}`);
+      logger.debug({ endpoint: baseEndpoint }, 'Using model API endpoint');
     }
   }
 
@@ -142,14 +144,14 @@ export async function generateImageDirect(params, mode = 'generate') {
     // Note: FormData with native fetch doesn't support custom headers well
     // API key support for FormData is limited in current implementation
     if (modelConfig && modelConfig.api_key) {
-      console.warn('[ImageService] API key with FormData not fully supported, consider using JSON mode');
+      logger.warn('API key with FormData not fully supported, consider using JSON mode');
     }
   } else {
     // JSON case
     headers = { 'Content-Type': 'application/json' };
     if (modelConfig && modelConfig.api_key) {
       headers['Authorization'] = `Bearer ${modelConfig.api_key}`;
-      console.log(`[ImageService] Using API key for authentication`);
+      logger.debug('Using API key for authentication');
     }
   }
 
@@ -182,7 +184,7 @@ export async function generateImage(params, mode = 'generate') {
       extraArgs = JSON.parse(extraArgsMatch[1]);
       processedPrompt = processedPrompt.replace(/<sd_cpp_extra_args>.*?<\/sd_cpp_extra_args>/s, '').trim();
     } catch (e) {
-      console.error('Failed to parse extra args:', e);
+      logger.error({ error: e }, 'Failed to parse extra args');
     }
   }
 
@@ -265,7 +267,7 @@ export async function generateImage(params, mode = 'generate') {
     modelConfig = modelManager.getModel(modelId);
     if (modelConfig && modelConfig.api) {
       baseEndpoint = modelConfig.api;
-      console.log(`[ImageService] Using model API endpoint: ${baseEndpoint}`);
+      logger.debug({ endpoint: baseEndpoint }, 'Using model API endpoint');
     }
   }
 
@@ -292,14 +294,14 @@ export async function generateImage(params, mode = 'generate') {
     // Note: FormData with native fetch doesn't support custom headers well
     // API key support for FormData is limited in current implementation
     if (modelConfig && modelConfig.api_key) {
-      console.warn('[ImageService] API key with FormData not fully supported, consider using JSON mode');
+      logger.warn('API key with FormData not fully supported, consider using JSON mode');
     }
   } else {
     // JSON case
     headers = { 'Content-Type': 'application/json' };
     if (modelConfig && modelConfig.api_key) {
       headers['Authorization'] = `Bearer ${modelConfig.api_key}`;
-      console.log(`[ImageService] Using API key for authentication`);
+      logger.debug('Using API key for authentication');
     }
   }
 

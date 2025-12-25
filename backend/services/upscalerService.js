@@ -3,8 +3,10 @@ import { join, resolve, dirname } from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
+import { createLogger } from '../utils/logger.js';
 
 const execAsync = promisify(exec);
+const logger = createLogger('upscalerService');
 
 /**
  * Upscaler Service
@@ -249,7 +251,7 @@ async function upscaleWithSDcpp(imageBuffer, modelPath) {
 
     // Check if sd-cli exists
     if (!existsSync(sdCliPath)) {
-      console.warn(`SD.cpp CLI not found at ${sdCliPath}, falling back to resize`);
+      logger.warn({ sdCliPath }, 'SD.cpp CLI not found, falling back to resize');
       const dims = await getImageDimensions(imageBuffer);
       return await resizeImage(imageBuffer, dims.width * 4, dims.height * 4, 'lanczos');
     }
@@ -265,7 +267,7 @@ async function upscaleWithSDcpp(imageBuffer, modelPath) {
     ];
 
     const command = `"${sdCliPath}" ${args.join(' ')}`;
-    console.log(`[Upscaler] Running: ${command}`);
+    logger.debug({ command }, 'Running SD.cpp upscaler');
 
     const { stdout, stderr } = await execAsync(command, {
       cwd: join(projectRoot, 'sdcpp'),
@@ -273,7 +275,7 @@ async function upscaleWithSDcpp(imageBuffer, modelPath) {
     });
 
     if (stderr && !stderr.includes('warning')) {
-      console.warn('[Upscaler] SD.cpp stderr:', stderr);
+      logger.warn({ stderr }, 'SD.cpp stderr output');
     }
 
     // Read the output image
@@ -282,15 +284,15 @@ async function upscaleWithSDcpp(imageBuffer, modelPath) {
     }
 
     const result = await readFile(tempOutputPath);
-    console.log(`[Upscaler] Upscaled image size: ${result.length} bytes`);
+    logger.debug({ size: result.length }, 'Upscaled image size');
     return result;
 
   } catch (execError) {
-    console.error('[Upscaler] SD.cpp upscaling error:', execError.message);
+    logger.error({ error: execError }, 'SD.cpp upscaling error');
 
     // Fallback to basic resize on error
     const dims = await getImageDimensions(imageBuffer);
-    console.warn('[Upscaler] Falling back to Lanczos resize');
+    logger.info('Falling back to Lanczos resize');
     return await resizeImage(imageBuffer, dims.width * 4, dims.height * 4, 'lanczos');
   } finally {
     // Cleanup temp files

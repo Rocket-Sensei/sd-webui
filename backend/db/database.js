@@ -2,6 +2,9 @@ import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { mkdirSync, existsSync, unlinkSync } from 'fs';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('database');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -177,9 +180,7 @@ export function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_model_download_files_download_id ON model_download_files(download_id);
   `);
 
-  console.log(`Database initialized at ${dbPath}`);
-  console.log(`Images directory: ${imagesDir}`);
-  console.log(`Input images directory: ${inputImagesDir}`);
+  logger.info({ dbPath, imagesDir, inputImagesDir }, 'Database initialized');
 }
 
 export function getDatabase() {
@@ -225,7 +226,7 @@ export function deleteGeneration(id) {
         unlinkSync(image.file_path);
       }
     } catch (e) {
-      console.error('Failed to delete image file:', e);
+      logger.error({ error: e, filePath: image.file_path }, 'Failed to delete image file');
     }
   }
 

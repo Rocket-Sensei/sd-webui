@@ -1,7 +1,10 @@
 import { getDatabase, getImagesDir } from './database.js';
 import { writeFile, unlink } from 'fs/promises';
-import { join } from 'path';
+import { join, basename } from 'path';
 import { randomUUID } from 'crypto';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('queries');
 
 // Generation status constants (merged from queue)
 export const GenerationStatus = {
@@ -11,6 +14,24 @@ export const GenerationStatus = {
   FAILED: 'failed',
   CANCELLED: 'cancelled',
 };
+
+/**
+ * Add static_url field to an image object for direct static file serving
+ * @param {Object} image - Image object from database
+ * @returns {Object} Image object with static_url field
+ */
+function addStaticUrlToImage(image) {
+  if (!image) return image;
+  if (image.file_path) {
+    // Extract just the filename from the full path
+    const filename = basename(image.file_path);
+    // Check if it's an input image or generated image
+    const isInputImage = image.file_path.includes('/input/');
+    const staticPath = isInputImage ? '/static/input' : '/static/images';
+    image.static_url = `${staticPath}/${filename}`;
+  }
+  return image;
+}
 
 /**
  * Create a new generation (can be queued or direct)
@@ -89,9 +110,11 @@ export async function createGeneratedImage(data) {
   );
 }
 
-export function getAllGenerations() {
+export function getAllGenerations(options = {}) {
+  const { limit, offset } = options;
   const db = getDatabase();
-  const stmt = db.prepare(`
+
+  let query = `
     SELECT
       g.*,
       COUNT(gi.id) as image_count
@@ -99,8 +122,26 @@ export function getAllGenerations() {
     LEFT JOIN generated_images gi ON g.id = gi.generation_id
     GROUP BY g.id
     ORDER BY g.created_at DESC
-  `);
+  `;
+
+  if (limit) {
+    query += ` LIMIT ${parseInt(limit)}`;
+  }
+  if (offset) {
+    query += ` OFFSET ${parseInt(offset)}`;
+  }
+
+  const stmt = db.prepare(query);
   return stmt.all();
+}
+
+/**
+ * Get total count of generations
+ */
+export function getGenerationsCount() {
+  const db = getDatabase();
+  const stmt = db.prepare('SELECT COUNT(*) as count FROM generations');
+  return stmt.get().count;
 }
 
 export function getGenerationById(id) {
@@ -127,19 +168,22 @@ export function getGenerationById(id) {
 export function getImageById(id) {
   const db = getDatabase();
   const stmt = db.prepare('SELECT * FROM generated_images WHERE id = ?');
-  return stmt.get(id);
+  const image = stmt.get(id);
+  return addStaticUrlToImage(image);
 }
 
 export function getImagesByGenerationId(generationId) {
   const db = getDatabase();
   const stmt = db.prepare('SELECT * FROM generated_images WHERE generation_id = ? ORDER BY index_in_batch');
-  return stmt.all(generationId);
+  const images = stmt.all(generationId);
+  return images.map(addStaticUrlToImage);
 }
 
 export function getFirstImageForGeneration(generationId) {
   const db = getDatabase();
   const stmt = db.prepare('SELECT * FROM generated_images WHERE generation_id = ? ORDER BY index_in_batch LIMIT 1');
-  return stmt.get(generationId);
+  const image = stmt.get(generationId);
+  return addStaticUrlToImage(image);
 }
 
 export function getGenerationsByType(type, limit = 50) {
@@ -258,7 +302,7 @@ export async function deleteGeneratedImagesByGenerationId(generationId) {
     try {
       await unlink(image.file_path);
     } catch (e) {
-      console.error(`Failed to delete image file: ${image.file_path}`, e);
+      logger.warn({ error: e, filePath: image.file_path }, 'Failed to delete image file');
     }
   }
 

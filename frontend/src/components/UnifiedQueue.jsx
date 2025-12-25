@@ -9,6 +9,7 @@ import {
   Box,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Sparkles,
   X,
   Clock,
@@ -93,10 +94,10 @@ const Thumbnail = memo(function Thumbnail({ generation }) {
         const gen = await response.json();
         if (gen.images && gen.images.length > 0) {
           setImageCount(gen.images.length);
-          const imgResponse = await authenticatedFetch(`/api/images/${gen.images[0].id}`);
-          if (imgResponse.ok) {
-            const blob = await imgResponse.blob();
-            setSrc(URL.createObjectURL(blob));
+          // Use static_url directly instead of fetching via API
+          const firstImage = gen.images[0];
+          if (firstImage.static_url) {
+            setSrc(firstImage.static_url);
           }
         }
       } catch (e) {
@@ -153,7 +154,7 @@ const Thumbnail = memo(function Thumbnail({ generation }) {
 });
 
 export function UnifiedQueue({ onCreateMore }) {
-  const { fetchGenerations, isLoading, generations } = useGenerations();
+  const { fetchGenerations, loadMore, isLoading, isLoadingMore, generations, pagination } = useGenerations({ pageSize: 20 });
   const [selectedImage, setSelectedImage] = useState(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [models, setModels] = useState({});
@@ -336,7 +337,8 @@ export function UnifiedQueue({ onCreateMore }) {
         ...generation,
         images: fullGeneration.images,
         currentImageIndex: imageIndex,
-        imageUrl: `/api/images/${image.id}`,
+        // Use static_url directly, fallback to API endpoint if not available
+        imageUrl: image.static_url || `/api/images/${image.id}`,
         width: image.width,
         height: image.height
       });
@@ -359,10 +361,18 @@ export function UnifiedQueue({ onCreateMore }) {
       }
 
       const image = generation.images[imageIndex];
-      const imageResponse = await authenticatedFetch(`/api/images/${image.id}`);
-      if (!imageResponse.ok) throw new Error("Failed to download image");
+      // Use static_url directly, fallback to API fetch if not available
+      let blob;
+      if (image.static_url) {
+        const imageResponse = await fetch(image.static_url);
+        if (!imageResponse.ok) throw new Error("Failed to download image");
+        blob = await imageResponse.blob();
+      } else {
+        const imageResponse = await authenticatedFetch(`/api/images/${image.id}`);
+        if (!imageResponse.ok) throw new Error("Failed to download image");
+        blob = await imageResponse.blob();
+      }
 
-      const blob = await imageResponse.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -385,7 +395,8 @@ export function UnifiedQueue({ onCreateMore }) {
       setSelectedImage({
         ...selectedImage,
         currentImageIndex: newIndex,
-        imageUrl: `/api/images/${image.id}`
+        // Use static_url directly, fallback to API endpoint if not available
+        imageUrl: image.static_url || `/api/images/${image.id}`
       });
     }
   };
@@ -397,7 +408,8 @@ export function UnifiedQueue({ onCreateMore }) {
       setSelectedImage({
         ...selectedImage,
         currentImageIndex: newIndex,
-        imageUrl: `/api/images/${image.id}`
+        // Use static_url directly, fallback to API endpoint if not available
+        imageUrl: image.static_url || `/api/images/${image.id}`
       });
     }
   };
@@ -556,6 +568,30 @@ export function UnifiedQueue({ onCreateMore }) {
           );
         })}
       </div>
+
+      {/* Load More Button */}
+      {pagination.hasMore && (
+        <div className="flex justify-center mt-6">
+          <Button
+            variant="outline"
+            onClick={loadMore}
+            disabled={isLoadingMore}
+            className="min-w-[150px]"
+          >
+            {isLoadingMore ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Loading...
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-4 w-4 mr-2" />
+                Load More ({pagination.total - generations.length} remaining)
+              </>
+            )}
+          </Button>
+        </div>
+      )}
 
       {/* Image Preview Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

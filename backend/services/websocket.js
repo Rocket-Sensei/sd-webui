@@ -13,6 +13,9 @@
  */
 
 import { WebSocketServer } from 'ws';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('websocket');
 
 // Supported channels
 export const CHANNELS = {
@@ -32,7 +35,7 @@ let wss = null;
  */
 export function initializeWebSocket(server) {
   if (wss) {
-    console.log('[WebSocket] Server already initialized');
+    logger.info('Server already initialized');
     return wss;
   }
 
@@ -55,7 +58,7 @@ export function initializeWebSocket(server) {
     ws.subscriptions = new Set();
     ws.isAlive = true;
 
-    console.log('[WebSocket] Client connected');
+    logger.info('Client connected');
 
     // Handle ping/pong for connection health
     ws.on('pong', () => {
@@ -67,17 +70,17 @@ export function initializeWebSocket(server) {
         const msg = JSON.parse(data.toString());
         handleMessage(ws, msg);
       } catch (error) {
-        console.error('[WebSocket] Failed to parse message:', error);
+        logger.error({ error }, 'Failed to parse message');
       }
     });
 
     ws.on('close', () => {
-      console.log('[WebSocket] Client disconnected');
+      logger.info('Client disconnected');
       unsubscribeAll(ws);
     });
 
     ws.on('error', (error) => {
-      console.error('[WebSocket] Connection error:', error);
+      logger.error({ error }, 'Connection error');
     });
 
     // Send welcome message
@@ -104,7 +107,7 @@ export function initializeWebSocket(server) {
     clearInterval(pingInterval);
   });
 
-  console.log('[WebSocket] Server initialized');
+  logger.info('Server initialized');
   return wss;
 }
 
@@ -137,7 +140,7 @@ function handleMessage(ws, msg) {
       sendToClient(ws, { type: 'pong', timestamp: Date.now() });
       break;
     default:
-      console.log('[WebSocket] Unknown message type:', msg.type);
+      logger.debug({ msgType: msg.type }, 'Unknown message type');
   }
 }
 
@@ -152,7 +155,7 @@ function subscribe(ws, channel) {
   }
   channels.get(channel).add(ws);
   ws.subscriptions.add(channel);
-  console.log(`[WebSocket] Client subscribed to channel: ${channel}`);
+  logger.debug({ channel }, 'Client subscribed to channel');
 
   // Send confirmation
   sendToClient(ws, {
@@ -173,7 +176,7 @@ function unsubscribe(ws, channel) {
     subs.delete(ws);
   }
   ws.subscriptions.delete(channel);
-  console.log(`[WebSocket] Client unsubscribed from channel: ${channel}`);
+  logger.debug({ channel }, 'Client unsubscribed from channel');
 
   // Clean up empty channels
   if (subs && subs.size === 0) {
@@ -232,7 +235,7 @@ export function broadcast(channel, payload) {
   });
 
   if (process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development') {
-    console.log(`[WebSocket] Broadcast to ${sent} client(s) on channel "${channel}":`, payload.type);
+    logger.debug({ sent, channel, type: payload.type }, 'Broadcast to clients');
   }
 }
 

@@ -19,6 +19,9 @@ import { join, dirname, basename, resolve } from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { promisify } from 'util';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('modelDownloader');
 
 // Lazy import easydl to avoid issues if not installed
 let EasyDl = null;
@@ -313,7 +316,7 @@ async function downloadWithPython(repo, files, destDir, onProgress, jobId) {
       python.stderr.on('data', (data) => {
         const msg = data.toString().trim();
         if (msg) {
-          console.error(`[Python stderr] ${msg}`);
+          logger.error({ msg }, 'Python stderr');
         }
       });
 
@@ -540,7 +543,7 @@ class ModelDownloader {
         throw new Error('No download method available. Please install Python with huggingface_hub ("pip install huggingface_hub") or install easydl ("npm install easy-dl").');
       }
 
-      console.log(`Downloading ${repo} using method: ${method}`);
+      logger.info({ repo, method }, 'Downloading model');
 
       // Prepare destination directory
       const destDir = files[0]?.dest || this.modelsDir;

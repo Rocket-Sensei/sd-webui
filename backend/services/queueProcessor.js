@@ -4,8 +4,10 @@ import { randomUUID } from 'crypto';
 import { getModelManager, ExecMode, ModelStatus } from './modelManager.js';
 import { cliHandler } from './cliHandler.js';
 import { readFile } from 'fs/promises';
-import { loggedFetch } from '../utils/logger.js';
+import { loggedFetch, createLogger } from '../utils/logger.js';
 import { broadcastQueueEvent, broadcastGenerationComplete } from './websocket.js';
+
+const logger = createLogger('queueProcessor');
 
 let isProcessing = false;
 let currentJob = null;
@@ -19,11 +21,11 @@ const modelManager = getModelManager();
  */
 export function startQueueProcessor(intervalMs = 1000) {
   if (pollInterval) {
-    console.log('Queue processor already running');
+    logger.info('Queue processor already running');
     return;
   }
 
-  console.log('Starting queue processor...');
+  logger.info('Starting queue processor...');
 
   // Ensure model config is loaded
   try {
@@ -31,7 +33,7 @@ export function startQueueProcessor(intervalMs = 1000) {
       modelManager.loadConfig();
     }
   } catch (error) {
-    console.warn('Failed to load model config:', error.message);
+    logger.warn({ error }, 'Failed to load model config');
     // Continue anyway - will handle model lookup failures per job
   }
 
@@ -47,7 +49,7 @@ export function stopQueueProcessor() {
   if (pollInterval) {
     clearInterval(pollInterval);
     pollInterval = null;
-    console.log('Queue processor stopped');
+    logger.info('Queue processor stopped');
   }
 }
 
@@ -75,7 +77,7 @@ async function processQueue() {
   isProcessing = true;
   currentJob = job;
 
-  console.log(`Processing job ${job.id}: ${job.prompt?.substring(0, 50)}...`);
+  logger.info({ jobId: job.id, prompt: job.prompt?.substring(0, 50) }, 'Processing job');
 
   try {
     // Update status to processing
@@ -98,7 +100,7 @@ async function processQueue() {
       throw new Error(`Model not found: ${modelId}`);
     }
 
-    console.log(`[QueueProcessor] Using model: ${modelId} (${modelConfig.name}), exec_mode: ${modelConfig.exec_mode}`);
+    logger.info({ modelId, modelName: modelConfig.name, execMode: modelConfig.exec_mode }, 'Using model');
 
     // Prepare model based on execution mode
     if (modelConfig.exec_mode === ExecMode.SERVER) {
@@ -107,11 +109,11 @@ async function processQueue() {
     } else if (modelConfig.exec_mode === ExecMode.CLI) {
       // For CLI mode, stop any running servers (they're not needed)
       await stopAllServerModels();
-      console.log(`[QueueProcessor] Model ${modelId} uses CLI mode`);
+      logger.info({ modelId }, 'Model uses CLI mode');
     } else if (modelConfig.exec_mode === ExecMode.API) {
       // For API mode, stop any running servers (external API is used)
       await stopAllServerModels();
-      console.log(`[QueueProcessor] Model ${modelId} uses external API mode`);
+      logger.info({ modelId }, 'Model uses external API mode');
     }
 
     // Process the job based on type
@@ -144,9 +146,9 @@ async function processQueue() {
       imageCount: result?.imageCount || 0,
     });
 
-    console.log(`Job ${job.id} completed successfully`);
+    logger.info({ jobId: job.id }, 'Job completed successfully');
   } catch (error) {
-    console.error(`Job ${job.id} failed:`, error);
+    logger.error({ error, jobId: job.id }, 'Job failed');
     updateGenerationStatus(job.id, GenerationStatus.FAILED, {
       error: error.message,
     });
@@ -168,18 +170,18 @@ async function stopAllServerModels() {
     return;
   }
 
-  console.log(`[QueueProcessor] Stopping ${runningModels.length} running server model(s)...`);
+  logger.info({ count: runningModels.length }, 'Stopping running server model(s)');
 
   for (const model of runningModels) {
     try {
-      console.log(`[QueueProcessor] Stopping model: ${model.id}`);
+      logger.info({ modelId: model.id }, 'Stopping model');
       await modelManager.stopModel(model.id);
     } catch (error) {
-      console.warn(`[QueueProcessor] Failed to stop model ${model.id}:`, error.message);
+      logger.warn({ error, modelId: model.id }, 'Failed to stop model');
     }
   }
 
-  console.log(`[QueueProcessor] All server models stopped`);
+  logger.info('All server models stopped');
 }
 
 /**
@@ -191,14 +193,14 @@ async function stopAllServerModels() {
 async function prepareModelForJob(modelId, jobId) {
   // Check if model is already running
   if (modelManager.isModelRunning(modelId)) {
-    console.log(`[QueueProcessor] Model ${modelId} is already running`);
+    logger.info({ modelId }, 'Model is already running');
     return;
   }
 
   // Stop any other running server models (only one server at a time)
   await stopAllServerModels();
 
-  console.log(`[QueueProcessor] Model ${modelId} not running, starting...`);
+  logger.info({ modelId }, 'Model not running, starting...');
   updateGenerationProgress(jobId, 0.05, `Starting model: ${modelId}...`);
 
   try {
@@ -216,7 +218,7 @@ async function prepareModelForJob(modelId, jobId) {
     while (Date.now() - startTime < maxWait) {
       const status = modelManager.getModelStatus(modelId);
       if (status.status === ModelStatus.RUNNING) {
-        console.log(`[QueueProcessor] Model ${modelId} is now running on port ${status.port}`);
+        logger.info({ modelId, port: status.port }, 'Model is now running');
         return;
       }
       if (status.status === ModelStatus.ERROR) {
@@ -228,7 +230,7 @@ async function prepareModelForJob(modelId, jobId) {
     throw new Error(`Model ${modelId} failed to start within timeout period`);
 
   } catch (error) {
-    console.error(`[QueueProcessor] Failed to start model ${modelId}:`, error);
+    logger.error({ error, modelId }, 'Failed to start model');
     throw new Error(`Model startup failed: ${error.message}`);
   }
 }
@@ -259,9 +261,9 @@ async function waitForServerReady(apiUrl, timeout = 30000) {
         // Optionally verify response contains model data
         const data = await response.json();
         if (data.object === 'list' && Array.isArray(data.data)) {
-          console.log(`[QueueProcessor] Server at ${apiUrl} is ready (${data.data.length} model(s) available)`);
+          logger.info({ apiUrl, count: data.data.length }, 'Server is ready');
         } else {
-          console.log(`[QueueProcessor] Server at ${apiUrl} is ready`);
+          logger.info({ apiUrl }, 'Server is ready');
         }
         return;
       }
@@ -313,12 +315,12 @@ async function processGenerateJob(job, modelConfig) {
 
   if (modelConfig.exec_mode === ExecMode.CLI) {
     // Use CLI handler for CLI mode models
-    console.log(`[QueueProcessor] Using CLI mode for ${modelId}`);
+    logger.debug({ modelId, execMode: 'CLI' }, 'Using CLI mode for model');
     response = await processCLIGeneration(job, modelConfig, params);
   } else if (modelConfig.exec_mode === ExecMode.SERVER || modelConfig.exec_mode === ExecMode.API) {
     // Use HTTP API for server mode (local) or API mode (external)
     const apiType = modelConfig.exec_mode === ExecMode.API ? 'external' : 'local';
-    console.log(`[QueueProcessor] Using ${apiType} HTTP API for ${modelId} at ${modelConfig.api}`);
+    logger.debug({ modelId, execMode: apiType, api: modelConfig.api }, `Using ${apiType} HTTP API for model`);
     response = await processHTTPGeneration(job, modelConfig, params);
   } else {
     throw new Error(`Unknown execution mode: ${modelConfig.exec_mode}`);
@@ -375,7 +377,7 @@ async function processHTTPGeneration(job, modelConfig, params) {
       extraArgs = JSON.parse(extraArgsMatch[1]);
       processedPrompt = processedPrompt.replace(/<sd_cpp_extra_args>.*?<\/sd_cpp_extra_args>/s, '').trim();
     } catch (e) {
-      console.error('Failed to parse extra args:', e);
+      logger.error({ error: e }, 'Failed to parse extra args');
     }
   }
 
@@ -442,7 +444,7 @@ async function processHTTPGeneration(job, modelConfig, params) {
 
   const endpoint = `${apiUrl}/images/generations`;
 
-  console.log(`[QueueProcessor] Making request to: ${endpoint}`);
+  logger.debug({ endpoint }, 'Making request to API');
 
   // Build headers - add API key if configured
   const headers = {
@@ -452,7 +454,7 @@ async function processHTTPGeneration(job, modelConfig, params) {
   // Add Authorization header if API key is configured
   if (modelConfig.api_key) {
     headers['Authorization'] = `Bearer ${modelConfig.api_key}`;
-    console.log(`[QueueProcessor] Using API key for authentication`);
+    logger.debug('Using API key for authentication');
   }
 
   const response = await loggedFetch(endpoint, {
@@ -478,7 +480,7 @@ async function processHTTPGeneration(job, modelConfig, params) {
  */
 async function processCLIGeneration(job, modelConfig, params) {
   try {
-    console.log(`[QueueProcessor] Generating with CLI for model: ${modelConfig.id}`);
+    logger.info({ modelId: modelConfig.id }, 'Generating with CLI');
 
     // Use CLI handler to generate image
     const imageBuffer = await cliHandler.generateImage(modelConfig.id, params, modelConfig);
@@ -494,7 +496,7 @@ async function processCLIGeneration(job, modelConfig, params) {
       }]
     };
   } catch (error) {
-    console.error(`[QueueProcessor] CLI generation failed:`, error);
+    logger.error({ error }, 'CLI generation failed');
     throw new Error(`CLI generation failed: ${error.message}`);
   }
 }
@@ -560,12 +562,12 @@ async function processEditJob(job, modelConfig) {
   if (modelConfig.exec_mode === ExecMode.CLI) {
     // For CLI mode, fall back to generate for now
     // Full implementation would need CLI-specific edit handling
-    console.warn(`[QueueProcessor] Edit mode with CLI not fully supported, using generate`);
+    logger.warn('Edit mode with CLI not fully supported, using generate');
     response = await processCLIGeneration(job, modelConfig, params);
   } else if (modelConfig.exec_mode === ExecMode.SERVER || modelConfig.exec_mode === ExecMode.API) {
     // Use generateImageDirect for edit mode with FormData
     const apiType = modelConfig.exec_mode === ExecMode.API ? 'external' : 'local';
-    console.log(`[QueueProcessor] Using ${apiType} HTTP API for edit at ${modelConfig.api}`);
+    logger.info({ apiType, api: modelConfig.api }, 'Using HTTP API for edit');
     response = await generateImageDirect(params, 'edit');
   } else {
     throw new Error(`Unknown execution mode: ${modelConfig.exec_mode}`);
@@ -652,12 +654,12 @@ async function processVariationJob(job, modelConfig) {
   if (modelConfig.exec_mode === ExecMode.CLI) {
     // For CLI mode, fall back to generate for now
     // Full implementation would need CLI-specific variation handling
-    console.warn(`[QueueProcessor] Variation mode with CLI not fully supported, using generate`);
+    logger.warn('Variation mode with CLI not fully supported, using generate');
     response = await processCLIGeneration(job, modelConfig, params);
   } else if (modelConfig.exec_mode === ExecMode.SERVER || modelConfig.exec_mode === ExecMode.API) {
     // Use generateImageDirect for variation mode with FormData
     const apiType = modelConfig.exec_mode === ExecMode.API ? 'external' : 'local';
-    console.log(`[QueueProcessor] Using ${apiType} HTTP API for variation at ${modelConfig.api}`);
+    logger.info({ apiType, api: modelConfig.api }, 'Using HTTP API for variation');
     response = await generateImageDirect(params, 'variation');
   } else {
     throw new Error(`Unknown execution mode: ${modelConfig.exec_mode}`);

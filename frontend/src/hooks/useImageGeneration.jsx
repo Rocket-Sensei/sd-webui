@@ -126,30 +126,58 @@ export function useImageGeneration() {
   return { generate, generateQueued, isLoading, error, result };
 }
 
-export function useGenerations() {
+export function useGenerations(options = {}) {
+  const { pageSize = 20 } = options;
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState(null);
   const [generations, setGenerations] = useState([]);
+  const [pagination, setPagination] = useState({
+    total: 0,
+    limit: pageSize,
+    offset: 0,
+    hasMore: false
+  });
 
-  const fetchGenerations = useCallback(async () => {
-    setIsLoading(true);
+  const fetchGenerations = useCallback(async (append = false) => {
+    if (append) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
-      const response = await authenticatedFetch('/api/generations');
+      const offset = append ? pagination.offset + pagination.limit : 0;
+      const url = `/api/generations?limit=${pageSize}&offset=${offset}`;
+      const response = await authenticatedFetch(url);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
       const data = await response.json();
-      setGenerations(data);
+
+      if (append) {
+        setGenerations((prev) => [...prev, ...data.generations]);
+      } else {
+        setGenerations(data.generations);
+      }
+
+      setPagination(data.pagination);
       return data;
     } catch (err) {
       setError(err.message);
       throw err;
     } finally {
       setIsLoading(false);
+      setIsLoadingMore(false);
     }
-  }, []);
+  }, [pageSize, pagination.offset, pagination.limit]);
+
+  const loadMore = useCallback(() => {
+    if (pagination.hasMore && !isLoadingMore) {
+      fetchGenerations(true);
+    }
+  }, [pagination.hasMore, isLoadingMore, fetchGenerations]);
 
   const deleteGeneration = useCallback(async (id) => {
     try {
@@ -160,6 +188,7 @@ export function useGenerations() {
         throw new Error(`HTTP ${response.status}`);
       }
       setGenerations((prev) => prev.filter((g) => g.id !== id));
+      setPagination((prev) => ({ ...prev, total: prev.total - 1 }));
       return true;
     } catch (err) {
       setError(err.message);
@@ -167,5 +196,14 @@ export function useGenerations() {
     }
   }, []);
 
-  return { fetchGenerations, deleteGeneration, isLoading, error, generations };
+  return {
+    fetchGenerations,
+    loadMore,
+    deleteGeneration,
+    isLoading,
+    isLoadingMore,
+    error,
+    generations,
+    pagination
+  };
 }

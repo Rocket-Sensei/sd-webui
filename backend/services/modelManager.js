@@ -15,6 +15,9 @@ import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 import { spawn } from 'child_process';
 import { broadcastModelStatus } from './websocket.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('modelManager');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,33 +51,6 @@ export const LoadMode = {
   ON_DEMAND: 'on_demand',
   PRELOAD: 'preload'
 };
-
-/**
- * Logger utility for consistent logging
- */
-class Logger {
-  constructor(prefix = '[ModelManager]') {
-    this.prefix = prefix;
-  }
-
-  info(message, ...args) {
-    console.log(`${this.prefix} INFO: ${message}`, ...args);
-  }
-
-  warn(message, ...args) {
-    console.warn(`${this.prefix} WARN: ${message}`, ...args);
-  }
-
-  error(message, ...args) {
-    console.error(`${this.prefix} ERROR: ${message}`, ...args);
-  }
-
-  debug(message, ...args) {
-    if (process.env.DEBUG === 'true' || process.env.NODE_ENV === 'development') {
-      console.debug(`${this.prefix} DEBUG: ${message}`, ...args);
-    }
-  }
-}
 
 /**
  * Process entry for tracking running model processes
@@ -160,7 +136,6 @@ export class ModelManager {
       // Auto-detect all YAML config files in the config directory
       this.configPaths = this._discoverConfigFiles();
     }
-    this.logger = new Logger(options.logPrefix || '[ModelManager]');
 
     // In-memory storage
     this.models = new Map(); // modelId -> model config
@@ -190,7 +165,7 @@ export class ModelManager {
    */
   loadConfig() {
     try {
-      this.logger.info(`Loading configuration from ${this.configPaths.length} file(s)`);
+      logger.info({ configFiles: this.configPaths.length }, 'Loading configuration');
 
       // Merge all configs
       let mergedConfig = { models: {}, upscalers: {} };
@@ -199,7 +174,7 @@ export class ModelManager {
       for (const configPath of this.configPaths) {
         // Check if file exists
         if (!fs.existsSync(configPath)) {
-          this.logger.warn(`Configuration file not found: ${configPath} - skipping`);
+          logger.warn({ configPath }, 'Configuration file not found - skipping');
           continue;
         }
 
@@ -208,7 +183,7 @@ export class ModelManager {
         const config = yaml.load(fileContent);
 
         if (!config || typeof config !== 'object') {
-          this.logger.warn(`Invalid configuration in ${configPath} - skipping`);
+          logger.warn({ configPath }, 'Invalid configuration - skipping');
           continue;
         }
 
@@ -234,23 +209,23 @@ export class ModelManager {
         }
 
         loadedFiles.push(configPath);
-        this.logger.debug(`Loaded configuration from: ${configPath}`);
+        logger.debug({ configPath }, 'Loaded configuration from file');
       }
 
       if (loadedFiles.length === 0) {
         throw new Error('No valid configuration files found');
       }
 
-      this.logger.info(`Loaded ${loadedFiles.length} configuration file(s)`);
+      logger.info({ count: loadedFiles.length }, 'Loaded configuration files');
 
       // Parse default model configuration
       // Support both legacy 'default' and new 'default_model' and 'default_models'
       this.defaultModelId = mergedConfig.default_model || null;
       this.defaultModels = mergedConfig.default_models || null;
 
-      this.logger.info(`Default model: ${this.defaultModelId || 'none'}`);
+      logger.info({ defaultModel: this.defaultModelId || 'none' }, 'Default model');
       if (this.defaultModels) {
-        this.logger.info(`Type-specific defaults: ${JSON.stringify(this.defaultModels)}`);
+        logger.info({ defaultModels: this.defaultModels }, 'Type-specific defaults');
       }
 
       // Parse models
@@ -260,26 +235,26 @@ export class ModelManager {
       for (const [modelId, modelConfig] of Object.entries(modelsConfig)) {
         // Validate required fields
         if (!modelConfig.name) {
-          this.logger.warn(`Model "${modelId}" missing name, skipping`);
+          logger.warn({ modelId }, 'Model missing name, skipping');
           continue;
         }
         // Determine exec_mode first
         if (!modelConfig.exec_mode || !Object.values(ExecMode).includes(modelConfig.exec_mode)) {
-          this.logger.warn(`Model "${modelId}" has invalid exec_mode, defaulting to 'server'`);
+          logger.warn({ modelId }, 'Model has invalid exec_mode, defaulting to server');
           modelConfig.exec_mode = ExecMode.SERVER;
         }
         // Command is required for SERVER and CLI modes, but not for API mode
         if ((modelConfig.exec_mode === ExecMode.SERVER || modelConfig.exec_mode === ExecMode.CLI) && !modelConfig.command) {
-          this.logger.warn(`Model "${modelId}" missing command (required for ${modelConfig.exec_mode} mode), skipping`);
+          logger.warn({ modelId, execMode: modelConfig.exec_mode }, 'Model missing command, skipping');
           continue;
         }
         // API key is required for API mode
         if (modelConfig.exec_mode === ExecMode.API && !modelConfig.api_key) {
-          this.logger.warn(`Model "${modelId}" missing api_key (required for API mode), skipping`);
+          logger.warn({ modelId }, 'Model missing api_key, skipping');
           continue;
         }
         if (!modelConfig.mode || !Object.values(LoadMode).includes(modelConfig.mode)) {
-          this.logger.warn(`Model "${modelId}" has invalid mode, defaulting to 'on_demand'`);
+          logger.warn({ modelId }, 'Model has invalid mode, defaulting to on_demand');
           modelConfig.mode = LoadMode.ON_DEMAND;
         }
 
@@ -287,14 +262,14 @@ export class ModelManager {
         if (!modelConfig.args) {
           modelConfig.args = [];
         } else if (!Array.isArray(modelConfig.args)) {
-          this.logger.warn(`Model "${modelId}" args is not an array, converting`);
+          logger.warn({ modelId }, 'Model args is not an array, converting');
           modelConfig.args = [modelConfig.args];
         }
 
         // Auto-fill api field from port for server mode if not present
         if (modelConfig.exec_mode === ExecMode.SERVER && modelConfig.port && !modelConfig.api) {
           modelConfig.api = `http://127.0.0.1:${modelConfig.port}/v1`;
-          this.logger.debug(`Model "${modelId}": auto-filled api field as ${modelConfig.api}`);
+          logger.debug({ modelId, api: modelConfig.api }, 'Auto-filled api field');
         }
 
         // Auto-add --listen-port from port field for server mode if not in args
@@ -312,7 +287,7 @@ export class ModelManager {
               modelConfig.args.push('127.0.0.1');
               modelConfig.args.push('--listen-port');
               modelConfig.args.push(String(modelConfig.port));
-              this.logger.debug(`Model "${modelId}": auto-added --listen-port ${modelConfig.port} to args`);
+              logger.debug({ modelId, port: modelConfig.port }, 'Auto-added --listen-port to args');
             } else {
               // -l exists, check if port follows it
               if (modelConfig.args[lFlagIdx + 1] && !modelConfig.args[lFlagIdx + 1].match(/^\d+$/)) {
@@ -320,7 +295,7 @@ export class ModelManager {
                 if (!modelConfig.args.includes('--listen-port')) {
                   // Insert --listen-port after the host address
                   modelConfig.args.splice(lFlagIdx + 2, 0, '--listen-port', String(modelConfig.port));
-                  this.logger.debug(`Model "${modelId}": auto-added --listen-port ${modelConfig.port} after -l 127.0.0.1`);
+                  logger.debug({ modelId, port: modelConfig.port }, 'Auto-added --listen-port after -l 127.0.0.1');
                 }
               }
             }
@@ -345,16 +320,16 @@ export class ModelManager {
           ...modelConfig
         });
 
-        this.logger.debug(`Loaded model: ${modelId} (${modelConfig.name})`);
+        logger.debug({ modelId, name: modelConfig.name }, 'Loaded model');
       }
 
       this.configLoaded = true;
-      this.logger.info(`Configuration loaded successfully. ${this.models.size} model(s) available.`);
+      logger.info({ count: this.models.size }, 'Configuration loaded successfully');
 
       return true;
 
     } catch (error) {
-      this.logger.error(`Failed to load configuration: ${error.message}`);
+      logger.error({ error }, 'Failed to load configuration');
       throw error;
     }
   }
@@ -366,7 +341,7 @@ export class ModelManager {
    */
   getModel(modelId) {
     if (!this.configLoaded) {
-      this.logger.warn('Configuration not loaded, calling loadConfig()');
+      logger.warn('Configuration not loaded, calling loadConfig()');
       this.loadConfig();
     }
 
@@ -379,7 +354,7 @@ export class ModelManager {
    */
   getAllModels() {
     if (!this.configLoaded) {
-      this.logger.warn('Configuration not loaded, calling loadConfig()');
+      logger.warn('Configuration not loaded, calling loadConfig()');
       this.loadConfig();
     }
 
@@ -494,11 +469,11 @@ export class ModelManager {
     }
 
     if (this.isModelRunning(modelId)) {
-      this.logger.warn(`Model "${modelId}" is already running`);
+      logger.warn({ modelId, name: model.name }, 'Model is already running');
       return this.processes.get(modelId);
     }
 
-    this.logger.info(`Starting model: ${modelId} (${model.name})`);
+    logger.info({ modelId, name: model.name }, 'Starting model');
 
     try {
       // Determine port
@@ -519,7 +494,7 @@ export class ModelManager {
         detached: false
       };
 
-      this.logger.debug(`Spawning: ${command} ${processedArgs.join(' ')}`);
+      logger.debug({ command, args: processedArgs }, 'Spawning process');
 
       const childProcess = spawn(command, processedArgs, processOptions);
 
@@ -533,14 +508,14 @@ export class ModelManager {
       // Set up output handlers
       childProcess.stdout.on('data', (data) => {
         processEntry.appendOutput(data);
-        this.logger.debug(`[${modelId}] ${data.toString().trim()}`);
+        logger.debug({ modelId, output: data.toString().trim() }, 'Process stdout');
 
         // Detect when server is ready (looks for common patterns)
         if (processEntry.status === ModelStatus.STARTING) {
           const output = data.toString();
           if (this._isServerReady(output)) {
             processEntry.status = ModelStatus.RUNNING;
-            this.logger.info(`Model "${modelId}" is now running on port ${port}`);
+            logger.info({ modelId, port }, 'Model is now running');
             // Broadcast model status change
             broadcastModelStatus(modelId, ModelStatus.RUNNING, {
               port,
@@ -553,7 +528,7 @@ export class ModelManager {
 
       childProcess.stderr.on('data', (data) => {
         processEntry.appendError(data);
-        this.logger.debug(`[${modelId}] STDERR: ${data.toString().trim()}`);
+        logger.debug({ modelId, output: data.toString().trim() }, 'Process stderr');
       });
 
       // Set up exit handler
@@ -582,7 +557,7 @@ export class ModelManager {
       return processEntry;
 
     } catch (error) {
-      this.logger.error(`Failed to start model "${modelId}": ${error.message}`);
+      logger.error({ error, modelId }, 'Failed to start model');
       throw error;
     }
   }
@@ -597,11 +572,11 @@ export class ModelManager {
     const processEntry = this.processes.get(modelId);
 
     if (!processEntry) {
-      this.logger.warn(`No running process for model: ${modelId}`);
+      logger.warn({ modelId }, 'No running process for model');
       return false;
     }
 
-    this.logger.info(`Stopping model: ${modelId} (PID: ${processEntry.pid})`);
+    logger.info({ modelId, pid: processEntry.pid }, 'Stopping model');
 
     try {
       processEntry.status = ModelStatus.STOPPING;
@@ -620,7 +595,7 @@ export class ModelManager {
         await new Promise((resolve) => {
           const timer = setTimeout(() => {
             if (childProcess && !childProcess.killed) {
-              this.logger.warn(`Model "${modelId}" did not exit gracefully, forcing`);
+              logger.warn({ modelId }, 'Model did not exit gracefully, forcing');
               childProcess.kill('SIGKILL');
             }
             resolve();
@@ -639,13 +614,13 @@ export class ModelManager {
         this.usedPorts.delete(processEntry.port);
       }
 
-      this.logger.info(`Model "${modelId}" stopped`);
+      logger.info({ modelId }, 'Model stopped');
       // Broadcast model status change
       broadcastModelStatus(modelId, ModelStatus.STOPPED, {});
       return true;
 
     } catch (error) {
-      this.logger.error(`Error stopping model "${modelId}": ${error.message}`);
+      logger.error({ error, modelId }, 'Error stopping model');
       processEntry.status = ModelStatus.ERROR;
       // Broadcast model status change
       broadcastModelStatus(modelId, ModelStatus.ERROR, { error: error.message });
@@ -726,7 +701,7 @@ export class ModelManager {
    * @returns {Promise<Array>} Array of started model IDs
    */
   async startPreloadModels() {
-    this.logger.info('Starting preload models...');
+    logger.info('Starting preload models...');
 
     const preloadModels = this.getAllModels().filter(
       model => model.mode === LoadMode.PRELOAD
@@ -739,11 +714,11 @@ export class ModelManager {
         await this.startModel(model.id);
         started.push(model.id);
       } catch (error) {
-        this.logger.error(`Failed to start preload model "${model.id}": ${error.message}`);
+        logger.error({ error, modelId: model.id }, 'Failed to start preload model');
       }
     }
 
-    this.logger.info(`Started ${started.length}/${preloadModels.length} preload models`);
+    logger.info({ started: started.length, total: preloadModels.length }, 'Started preload models');
     return started;
   }
 
@@ -752,7 +727,7 @@ export class ModelManager {
    * @returns {Promise<number>} Number of models stopped
    */
   async stopAllModels() {
-    this.logger.info('Stopping all models...');
+    logger.info('Stopping all models...');
     this.isShuttingDown = true;
 
     const running = Array.from(this.processes.keys());
@@ -765,7 +740,7 @@ export class ModelManager {
     }
 
     this.isShuttingDown = false;
-    this.logger.info(`Stopped ${stopped}/${running.length} models`);
+    logger.info({ stopped, total: running.length }, 'Stopped models');
     return stopped;
   }
 
@@ -792,7 +767,7 @@ export class ModelManager {
   _discoverConfigFiles() {
     // Fall back to single config if directory doesn't exist
     if (!fs.existsSync(CONFIG_DIR)) {
-      this.logger.warn(`Config directory not found: ${CONFIG_DIR}, using fallback`);
+      logger.warn({ configDir: CONFIG_DIR }, 'Config directory not found, using fallback');
       return [DEFAULT_CONFIG_PATH];
     }
 
@@ -920,7 +895,7 @@ export class ModelManager {
       return;
     }
 
-    this.logger.info(`Model "${modelId}" process exited (code: ${code}, signal: ${signal})`);
+    logger.info({ modelId, code, signal }, 'Model process exited');
 
     processEntry.exitCode = code;
     processEntry.signal = signal;
@@ -954,7 +929,7 @@ export class ModelManager {
    * @private
    */
   _handleProcessError(modelId, error) {
-    this.logger.error(`Model "${modelId}" process error: ${error.message}`);
+    logger.error({ error, modelId }, 'Model process error');
 
     const processEntry = this.processes.get(modelId);
     if (processEntry) {
@@ -983,7 +958,7 @@ export class ModelManager {
 
       if (!process || process.killed || process.exitCode !== null) {
         if (processEntry.status !== ModelStatus.STOPPING) {
-          this.logger.debug(`Cleaning up zombie process for model: ${modelId}`);
+          logger.debug({ modelId }, 'Cleaning up zombie process');
           this.processes.delete(modelId);
           if (processEntry.port) {
             this.usedPorts.delete(processEntry.port);

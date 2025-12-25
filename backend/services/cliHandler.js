@@ -12,7 +12,9 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
-import { logCliCommand, logCliOutput, logCliError } from '../utils/logger.js';
+import { logCliCommand, logCliOutput, logCliError, createLogger } from '../utils/logger.js';
+
+const logger = createLogger('cliHandler');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,7 +104,7 @@ class CLIHandler {
     try {
       await fs.mkdir(this.tempDir, { recursive: true });
     } catch (error) {
-      console.error('Failed to create temp directory:', error);
+      logger.error({ error }, 'Failed to create temp directory');
     }
   }
 
@@ -131,7 +133,7 @@ class CLIHandler {
     // Add output path to command
     command.push('-o', outputPath);
 
-    console.log(`[CLIHandler] Executing command: ${command.join(' ')}`);
+    logger.debug({ command: command.join(' ') }, 'Executing command');
 
     // Log the CLI command
     const [cmd, ...args] = command;
@@ -149,13 +151,13 @@ class CLIHandler {
 
       // Clean up temporary file
       await fs.unlink(imagePath).catch(err => {
-        console.warn(`[CLIHandler] Failed to delete temp file: ${err.message}`);
+        logger.warn({ error: err }, 'Failed to delete temp file');
       });
 
       return imageBuffer;
     } catch (error) {
       logCliError(error);
-      console.error(`[CLIHandler] Image generation failed:`, error);
+      logger.error({ error }, 'Image generation failed');
       throw new Error(`CLI generation failed: ${error.message}`);
     }
   }
@@ -333,13 +335,13 @@ class CLIHandler {
       const match = output.match(pattern);
       if (match && match[1]) {
         const imagePath = match[1].trim();
-        console.log(`[CLIHandler] Parsed image path: ${imagePath}`);
+        logger.debug({ imagePath }, 'Parsed image path');
         return imagePath;
       }
     }
 
     // If no pattern matches, use the fallback path
-    console.warn(`[CLIHandler] Could not parse image path from output, using fallback: ${fallbackPath}`);
+    logger.warn({ fallbackPath }, 'Could not parse image path from output, using fallback');
     return fallbackPath;
   }
 
@@ -365,7 +367,7 @@ class CLIHandler {
         // For now, return single image
         images.push(result);
       } catch (error) {
-        console.error('[CLIHandler] Batch generation failed:', error);
+        logger.error({ error }, 'Batch generation failed');
         throw error;
       }
     } else {

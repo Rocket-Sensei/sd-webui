@@ -1,26 +1,199 @@
 /**
- * Debug Logging Utility
+ * Pino-based Logging Utility
  *
- * Provides toggleable debug logging for:
- * - HTTP API calls (curl format)
- * - CLI command executions
+ * Provides structured logging with multiple file outputs:
+ * - logs/http.log: HTTP API request/response logs
+ * - logs/sdcpp.log: sd-cli/sd-server logs
+ * - logs/app.log: General application logs
  *
  * Environment variables:
- * - LOG_API_CALLS: Enable HTTP API request/response logging
- * - LOG_CLI_CALLS: Enable CLI command execution logging
+ * - LOG_LEVEL: Minimum log level (default: 'info')
+ * - LOG_API_CALLS: Enable HTTP API request/response logging (default: 'true')
+ * - LOG_CLI_CALLS: Enable CLI command execution logging (default: 'true')
+ * - NODE_ENV: 'development' enables pretty printing to console
  */
 
-// Helper functions to check env vars lazily (after .env is loaded)
-function isApiLoggingEnabled() {
-  return process.env.LOG_API_CALLS === 'true' || process.env.LOG_API_CALLS === '1';
+import pino from 'pino';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.join(__dirname, '../..');
+
+// Ensure logs directory exists
+const logsDir = path.join(PROJECT_ROOT, 'backend', 'logs');
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
 }
 
-function isCliLoggingEnabled() {
-  return process.env.LOG_CLI_CALLS === 'true' || process.env.LOG_CLI_CALLS === '1';
+// Log levels
+const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+const IS_DEVELOPMENT = process.env.NODE_ENV === 'development' || process.env.DEBUG === 'true';
+
+/**
+ * Check if API logging is enabled
+ */
+function isApiLoggingEnabled() {
+  return process.env.LOG_API_CALLS !== 'false' && process.env.LOG_API_CALLS !== '0';
 }
 
 /**
- * Log HTTP API request in curl format
+ * Check if CLI logging is enabled
+ */
+function isCliLoggingEnabled() {
+  return process.env.LOG_CLI_CALLS !== 'false' && process.env.LOG_CLI_CALLS !== '0';
+}
+
+/**
+ * Create a pino destination with file rotation support
+ */
+function createFileDestination(filename, options = {}) {
+  const filePath = path.join(logsDir, filename);
+  return pino.destination({
+    dest: filePath,
+    sync: false, // Asynchronous for better performance
+    minLength: 0, // No buffering - write immediately
+    ...options
+  });
+}
+
+/**
+ * Create multi-stream logger for different log types
+ */
+function createBaseLogger() {
+  const streams = [
+    // All logs go to app.log
+    { level: 'trace', stream: createFileDestination('app.log') },
+  ];
+
+  // In development, also output to console
+  if (IS_DEVELOPMENT) {
+    streams.push({
+      level: LOG_LEVEL,
+      stream: process.stdout,
+    });
+  }
+
+  return pino({
+    level: LOG_LEVEL,
+    formatters: {
+      level: (label, number) => {
+        return { level: label, levelNum: number };
+      },
+    },
+    // Use mixin to add custom time field
+    mixin() {
+      return { time: new Date().toISOString() };
+    },
+    serializers: {
+      error: pino.stdSerializers.err,
+      req: pino.stdSerializers.req,
+      res: pino.stdSerializers.res,
+    },
+    // Redact sensitive data - array of paths
+    redact: [
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'apiKey',
+      'api_key',
+      'password'
+    ]
+  }, pino.multistream(streams));
+}
+
+/**
+ * Create HTTP-specific logger (writes to http.log)
+ */
+function createHttpLogger() {
+  return pino({
+    level: LOG_LEVEL,
+    formatters: {
+      level: (label, number) => ({ level: label, levelNum: number }),
+    },
+    mixin() {
+      return { time: new Date().toISOString() };
+    },
+    serializers: {
+      req: pino.stdSerializers.req,
+      res: pino.stdSerializers.res,
+      err: pino.stdSerializers.err,
+    },
+    // Redact sensitive data - array of paths
+    redact: [
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'headers.authorization',
+      'headers.cookie',
+      'body.password',
+      'body.apiKey',
+      'password',
+      'apiKey'
+    ]
+  }, createFileDestination('http.log'));
+}
+
+/**
+ * Create SD.cpp-specific logger (writes to sdcpp.log)
+ */
+function createSdCppLogger() {
+  return pino({
+    level: LOG_LEVEL,
+    formatters: {
+      level: (label, number) => ({ level: label, levelNum: number }),
+    },
+    mixin() {
+      return { time: new Date().toISOString() };
+    },
+    base: { type: 'sdcpp' }
+  }, createFileDestination('sdcpp.log'));
+}
+
+// Base logger instance
+const baseLogger = createBaseLogger();
+const httpLogger = createHttpLogger();
+const sdCppLogger = createSdCppLogger();
+
+/**
+ * Create a child logger with module context
+ * @param {string} module - Module name
+ * @param {Object} bindings - Additional bindings
+ * @returns {pino.Logger} Child logger
+ */
+export function createLogger(module, bindings = {}) {
+  return baseLogger.child({
+    module,
+    ...bindings
+  });
+}
+
+/**
+ * Get the HTTP logger
+ * @returns {pino.Logger} HTTP logger
+ */
+export function getHttpLogger() {
+  return httpLogger;
+}
+
+/**
+ * Get the SD.cpp logger
+ * @returns {pino.Logger} SD.cpp logger
+ */
+export function getSdCppLogger() {
+  return sdCppLogger;
+}
+
+/**
+ * Get the base logger
+ * @returns {pino.Logger} Base logger
+ */
+export function getBaseLogger() {
+  return baseLogger;
+}
+
+/**
+ * Log HTTP API request
  * @param {string} method - HTTP method
  * @param {string} url - Full URL
  * @param {Object} headers - Request headers
@@ -29,94 +202,97 @@ function isCliLoggingEnabled() {
 export function logApiRequest(method, url, headers = {}, body = null) {
   if (!isApiLoggingEnabled()) return;
 
-  console.log('\n========== API REQUEST ==========');
-  console.log(`[API] ${method} ${url}`);
-
-  // Build curl command
-  let curlCmd = `curl -X ${method} '${url}'`;
-
-  // Add headers to curl
+  // Sanitize headers before logging
+  const sanitizedHeaders = {};
   for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() !== 'content-type') {
-      curlCmd += ` \\\n  -H '${key}: ${value}'`;
+    if (key.toLowerCase() === 'authorization') {
+      sanitizedHeaders[key] = '[REDACTED]';
+    } else if (key.toLowerCase() === 'cookie') {
+      sanitizedHeaders[key] = '[REDACTED]';
+    } else if (key.toLowerCase() !== 'content-type') {
+      sanitizedHeaders[key] = value;
     }
   }
 
-  // Add body to curl
+  const logData = {
+    method,
+    url,
+    headers: sanitizedHeaders,
+  };
+
+  // Add body info without sensitive data
   if (body) {
     if (body instanceof FormData) {
-      curlCmd += ` \\\n  -H 'Content-Type: multipart/form-data' \\\n  --data-raw '<FORM_DATA>'`;
-      console.log('[API] Content-Type: multipart/form-data');
-      console.log('[API] FormData fields:');
-      // FormData is not iterable in all environments, try to log what we can
+      logData.contentType = 'multipart/form-data';
+      const formDataInfo = {};
       try {
         for (const [key, value] of body.entries()) {
           if (value instanceof Blob) {
-            console.log(`  ${key}: <Blob size=${value.size} type=${value.type}>`);
+            formDataInfo[key] = `<Blob size=${value.size} type=${value.type}>`;
           } else {
-            console.log(`  ${key}: ${value}`);
+            formDataInfo[key] = value;
           }
         }
+        logData.formData = formDataInfo;
       } catch (e) {
-        console.log('  <Unable to enumerate FormData entries>');
+        logData.formData = '<Unable to enumerate>';
       }
     } else if (typeof body === 'string') {
-      curlCmd += ` \\\n  -H 'Content-Type: ${headers['Content-Type'] || 'application/json'}'`;
-      curlCmd += ` \\\n  -d '${body}'`;
-      console.log(`[API] Content-Type: ${headers['Content-Type'] || 'application/json'}`);
-      console.log('[API] Request body:', body);
+      logData.contentType = headers['Content-Type'] || 'application/json';
+      logData.body = body;
     } else if (typeof body === 'object') {
-      // Check if object is empty (like GET requests)
-      const isEmpty = body && Object.keys(body).length === 0;
-      if (isEmpty) {
-        // No body to log
-        console.log('[API] Request body: <empty>');
-      } else {
-        const bodyStr = JSON.stringify(body, null, 2);
-        curlCmd += ` \\\n  -H 'Content-Type: ${headers['Content-Type'] || 'application/json'}'`;
-        curlCmd += ` \\\n  -d '${bodyStr.replace(/'/g, "'\"'\"'")}'`;
-        console.log(`[API] Content-Type: ${headers['Content-Type'] || 'application/json'}`);
-        console.log('[API] Request body:', bodyStr);
+      const isEmpty = !body || Object.keys(body).length === 0;
+      if (!isEmpty) {
+        logData.contentType = headers['Content-Type'] || 'application/json';
+        logData.bodyKeys = Object.keys(body);
+        // Sanitize body - redact sensitive fields
+        const sanitizedBody = {};
+        for (const [key, value] of Object.entries(body)) {
+          if (key.toLowerCase() === 'password' || key.toLowerCase() === 'apikey' || key.toLowerCase() === 'api_key') {
+            sanitizedBody[key] = '[REDACTED]';
+          } else if (typeof value === 'string' && value.length > 1000) {
+            sanitizedBody[key] = `<data length=${value.length}>`;
+          } else {
+            sanitizedBody[key] = value;
+          }
+        }
+        logData.body = sanitizedBody;
       }
     }
   }
 
-  console.log('[API] Curl command:');
-  console.log(curlCmd);
-  console.log('====================================\n');
+  httpLogger.info({ ...logData, eventType: 'apiRequest' }, `API ${method} ${url}`);
 }
 
 /**
  * Log HTTP API response
  * @param {Response} response - Fetch response object
- * @param {Object|string} data - Parsed response data (not logged to avoid large base64 payloads)
+ * @param {Object|string} data - Parsed response data
  */
 export async function logApiResponse(response, data = null) {
   if (!isApiLoggingEnabled()) return;
 
-  console.log('\n========== API RESPONSE ==========');
-  console.log(`[API] Status: ${response.status} ${response.statusText}`);
+  const logData = {
+    status: response.status,
+    statusText: response.statusText,
+    headers: Object.fromEntries(response.headers.entries()),
+  };
 
-  // Log response headers
-  console.log('[API] Response headers:');
-  response.headers.forEach((value, key) => {
-    console.log(`  ${key}: ${value}`);
-  });
-
-  // Log response summary (not full body to avoid large base64 data)
+  // Add response summary
   if (data) {
     if (data.data && Array.isArray(data.data)) {
-      console.log(`[API] Response: ${data.data.length} image(s)`);
+      logData.responseSummary = `${data.data.length} image(s)`;
     } else if (data.id) {
-      console.log(`[API] Response: job id=${data.id}, status=${data.status}`);
+      logData.responseSummary = `job id=${data.id}, status=${data.status}`;
     } else if (data.created) {
-      console.log(`[API] Response: created=${data.created}`);
+      logData.responseSummary = `created=${data.created}`;
     } else {
-      console.log('[API] Response: <data received>');
+      logData.responseSummary = '<data received>';
     }
   }
 
-  console.log('====================================\n');
+  const level = response.status >= 400 ? 'error' : 'info';
+  httpLogger[level]({ ...logData, eventType: 'apiResponse' }, `API Response: ${response.status}`);
 }
 
 /**
@@ -128,21 +304,15 @@ export async function logApiResponse(response, data = null) {
 export function logCliCommand(command, args = [], options = {}) {
   if (!isCliLoggingEnabled()) return;
 
-  console.log('\n========== CLI COMMAND ==========');
-  console.log(`[CLI] Command: ${command}`);
-  console.log(`[CLI] Args:`, args);
-  console.log(`[CLI] Options:`, options);
+  const shellCmd = [command, ...args.map(arg => arg.includes(' ') ? `'${arg}'` : arg)].join(' ');
 
-  // Build shell command for easy copy-paste
-  const escapedArgs = args.map(arg => {
-    if (arg.includes(' ')) return `'${arg}'`;
-    return arg;
-  });
-  const shellCmd = [command, ...escapedArgs].join(' ');
-
-  console.log('[CLI] Shell command:');
-  console.log(`  ${shellCmd}`);
-  console.log('====================================\n');
+  sdCppLogger.info({
+    command,
+    args,
+    options,
+    shellCmd,
+    eventType: 'cliCommand'
+  }, `CLI: ${command}`);
 }
 
 /**
@@ -154,20 +324,14 @@ export function logCliCommand(command, args = [], options = {}) {
 export function logCliOutput(stdout, stderr, exitCode) {
   if (!isCliLoggingEnabled()) return;
 
-  console.log('\n========== CLI OUTPUT ==========');
-  console.log(`[CLI] Exit code: ${exitCode}`);
+  const level = exitCode !== 0 ? 'error' : 'info';
 
-  if (stdout) {
-    console.log('[CLI] Stdout:');
-    console.log(stdout);
-  }
-
-  if (stderr) {
-    console.log('[CLI] Stderr:');
-    console.log(stderr);
-  }
-
-  console.log('===================================\n');
+  sdCppLogger[level]({
+    exitCode,
+    stdout: stdout || undefined,
+    stderr: stderr || undefined,
+    eventType: 'cliOutput'
+  }, `CLI exit code: ${exitCode}`);
 }
 
 /**
@@ -177,12 +341,10 @@ export function logCliOutput(stdout, stderr, exitCode) {
 export function logCliError(error) {
   if (!isCliLoggingEnabled()) return;
 
-  console.log('\n========== CLI ERROR ==========');
-  console.log(`[CLI] Error: ${error.message}`);
-  if (error.stack) {
-    console.log('[CLI] Stack:', error.stack);
-  }
-  console.log('==================================\n');
+  sdCppLogger.error({
+    error: pino.stdSerializers.err(error),
+    eventType: 'cliError'
+  }, `CLI Error: ${error.message}`);
 }
 
 /**
@@ -210,7 +372,7 @@ export async function loggedFetch(url, options = {}) {
     try {
       const clonedResponse = response.clone();
       const text = await clonedResponse.text();
-      await logApiResponse(response, text.substring(0, 1000)); // Truncate large responses
+      await logApiResponse(response, text.substring(0, 1000));
     } catch {
       await logApiResponse(response, null);
     }
@@ -218,3 +380,9 @@ export async function loggedFetch(url, options = {}) {
 
   return response;
 }
+
+// Export default logger for general use
+export default createLogger('app');
+
+// Export pino for advanced usage
+export { pino };

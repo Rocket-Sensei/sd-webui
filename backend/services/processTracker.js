@@ -7,6 +7,9 @@
 
 import net from 'net';
 import { spawn } from 'child_process';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('processTracker');
 
 // Configuration constants
 const PORT_RANGE_START = 8000;
@@ -42,11 +45,11 @@ export const ProcessStatus = {
  */
 export function initializeProcessTracker() {
   if (zombieCheckInterval) {
-    console.log('Process tracker already initialized');
+    logger.info('Process tracker already initialized');
     return;
   }
 
-  console.log('Initializing process tracker...');
+  logger.info('Initializing process tracker...');
 
   // Clean up any zombie processes on startup
   cleanupZombies();
@@ -59,14 +62,14 @@ export function initializeProcessTracker() {
   // Register shutdown handler
   registerShutdownHandler();
 
-  console.log('Process tracker initialized');
+  logger.info('Process tracker initialized');
 }
 
 /**
  * Shutdown the process tracker and clean up all processes
  */
 export function shutdownProcessTracker() {
-  console.log('Shutting down process tracker...');
+  logger.info('Shutting down process tracker...');
 
   // Stop zombie check interval
   if (zombieCheckInterval) {
@@ -80,11 +83,11 @@ export function shutdownProcessTracker() {
     try {
       killProcess(procInfo.modelId);
     } catch (error) {
-      console.error(`Error killing process ${procInfo.modelId}:`, error.message);
+      logger.error({ error, modelId: procInfo.modelId }, 'Error killing process');
     }
   }
 
-  console.log('Process tracker shut down');
+  logger.info('Process tracker shut down');
 }
 
 /**
@@ -117,7 +120,7 @@ export function registerProcess(modelId, process, port, execMode) {
   if (processes.has(modelId)) {
     const existing = processes.get(modelId);
     if (existing.status === ProcessStatus.RUNNING || existing.status === ProcessStatus.STARTING) {
-      console.warn(`Process already registered for model ${modelId}, killing existing process`);
+      logger.warn({ modelId }, 'Process already registered, killing existing process');
       killProcess(modelId);
     }
   }
@@ -140,7 +143,7 @@ export function registerProcess(modelId, process, port, execMode) {
   // Set up process event handlers
   setupProcessHandlers(modelId, process);
 
-  console.log(`Registered process for model ${modelId}: PID=${process.pid}, port=${port}, mode=${execMode}`);
+  logger.info({ modelId, pid: process.pid, port, execMode }, 'Registered process');
 
   return getProcessInfo(processInfo);
 }
@@ -156,7 +159,7 @@ function setupProcessHandlers(modelId, process) {
   process.on('exit', (code, signal) => {
     const procInfo = processes.get(modelId);
     if (procInfo) {
-      console.log(`Process for model ${modelId} exited: code=${code}, signal=${signal}`);
+      logger.info({ modelId, code, signal }, 'Process exited');
       procInfo.status = ProcessStatus.STOPPED;
       // Don't remove from map immediately, allow cleanupZombies to handle it
       // This allows callers to check final status
@@ -169,7 +172,7 @@ function setupProcessHandlers(modelId, process) {
 
   // Handle process error
   process.on('error', (error) => {
-    console.error(`Process error for model ${modelId}:`, error);
+    logger.error({ error, modelId }, 'Process error');
     const procInfo = processes.get(modelId);
     if (procInfo) {
       procInfo.status = ProcessStatus.ERROR;
@@ -226,7 +229,7 @@ export function unregisterProcess(modelId) {
   }
 
   processes.delete(modelId);
-  console.log(`Unregistered process for model ${modelId}`);
+  logger.info({ modelId }, 'Unregistered process');
   return true;
 }
 
@@ -310,7 +313,7 @@ function getProcessInfo(procInfo) {
 export function killProcess(modelId) {
   const procInfo = processes.get(modelId);
   if (!procInfo) {
-    console.warn(`No process found for model ${modelId}`);
+    logger.warn({ modelId }, 'No process found for model');
     return false;
   }
 
@@ -336,7 +339,7 @@ export function killProcess(modelId) {
       }, 5000);
     } catch (error) {
       // If the process doesn't exist, we can still clean up the tracking
-      console.warn(`Process ${pid} not found, cleaning up tracking`);
+      logger.warn({ pid }, 'Process not found, cleaning up tracking');
     }
   }
 
@@ -348,7 +351,7 @@ export function killProcess(modelId) {
   // Remove from processes map
   processes.delete(modelId);
 
-  console.log(`Killed process for model ${modelId} (PID: ${pid})`);
+  logger.info({ modelId, pid }, 'Killed process');
   return true;
 }
 
@@ -377,13 +380,13 @@ export function cleanupZombies() {
     // Check 2: Heartbeat timeout
     if (!isZombie && (now - procInfo.lastHeartbeat) > HEARTBEAT_TIMEOUT_MS) {
       isZombie = true;
-      console.warn(`Process ${modelId} (PID: ${procInfo.pid}) heartbeat timeout`);
+      logger.warn({ modelId, pid: procInfo.pid }, 'Process heartbeat timeout');
     }
 
     // Check 3: PID no longer exists
     if (!isZombie && !checkProcessAlive(procInfo)) {
       isZombie = true;
-      console.warn(`Process ${modelId} (PID: ${procInfo.pid}) no longer exists`);
+      logger.warn({ modelId, pid: procInfo.pid }, 'Process no longer exists');
     }
 
     if (isZombie) {
@@ -394,7 +397,7 @@ export function cleanupZombies() {
   // Clean up zombies
   for (const modelId of zombies) {
     const procInfo = processes.get(modelId);
-    console.log(`Cleaning up zombie process: ${modelId} (PID: ${procInfo?.pid})`);
+    logger.info({ modelId, pid: procInfo?.pid }, 'Cleaning up zombie process');
 
     // Release port
     if (procInfo && procInfo.port) {
@@ -405,7 +408,7 @@ export function cleanupZombies() {
   }
 
   if (zombies.length > 0) {
-    console.log(`Cleaned up ${zombies.length} zombie process(es)`);
+    logger.info({ count: zombies.length }, 'Cleaned up zombie processes');
   }
 
   return zombies.length;
@@ -567,7 +570,7 @@ export function getProcessStats() {
  */
 function registerShutdownHandler() {
   const shutdownHandler = async (signal) => {
-    console.log(`Received ${signal}, shutting down processes...`);
+    logger.info({ signal }, 'Received signal, shutting down processes');
     shutdownProcessTracker();
     process.exit(0);
   };

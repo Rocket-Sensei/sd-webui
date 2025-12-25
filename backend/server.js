@@ -21,7 +21,8 @@ import {
   cancelGeneration,
   getGenerationStats,
   GenerationStatus,
-  deleteGeneration
+  deleteGeneration,
+  getGenerationsCount
 } from './db/queries.js';
 import { startQueueProcessor } from './services/queueProcessor.js';
 
@@ -35,7 +36,10 @@ import { ensurePngFormat } from './utils/imageUtils.js';
 import { initializeWebSocket, broadcastGenerationComplete, broadcastModelStatus } from './services/websocket.js';
 
 // Debug logging utilities
-import { logApiRequest } from './utils/logger.js';
+import { logApiRequest, createLogger } from './utils/logger.js';
+
+// Create logger for server module
+const logger = createLogger('server');
 
 // Load environment variables from .env file
 const envResult = config({
@@ -44,14 +48,14 @@ const envResult = config({
 
 if (envResult.error) {
   // .env file is optional, log but don't fail
-  console.log('Note: .env file not found, using environment variables');
+  logger.info('Note: .env file not found, using environment variables');
 }
 
 // Log HuggingFace token status
 if (process.env.HF_TOKEN) {
-  console.log('HuggingFace token configured for authenticated downloads');
+  logger.info('HuggingFace token configured for authenticated downloads');
 } else {
-  console.log('No HuggingFace token found (HF_TOKEN not set)');
+  logger.info('No HuggingFace token found (HF_TOKEN not set)');
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -68,9 +72,18 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Request logging middleware (for API routes only)
 app.use((req, res, next) => {
-  // Only log API routes, skip static files and health checks
-  // Include both /api/* and /sdapi/* routes for SD.next compatibility
-  if ((req.path.startsWith('/api') || req.path.startsWith('/sdapi')) && req.path !== '/api/health') {
+  // Skip logging for:
+  // 1. Static file routes (/static/*)
+  // 2. Image serving endpoints (/api/images/*, /api/generations/*/image)
+  // 3. Health checks
+  const skipLogging =
+    req.path.startsWith('/static') ||
+    req.path.startsWith('/api/images/') ||
+    req.path.match(/^\/api\/generations\/[^/]+\/image$/) ||
+    req.path === '/api/health';
+
+  // Only log API routes (both /api/* and /sdapi/* routes for SD.next compatibility)
+  if (!skipLogging && (req.path.startsWith('/api') || req.path.startsWith('/sdapi'))) {
     const startTime = Date.now();
 
     // Log the request
@@ -82,7 +95,7 @@ app.use((req, res, next) => {
     // Capture response when finished
     res.on('finish', () => {
       const elapsed = Date.now() - startTime;
-      console.log(`[API] Response: ${res.statusCode} (${elapsed}ms)`);
+      // Response logging is handled by the logging utility
     });
   }
   next();
@@ -90,6 +103,16 @@ app.use((req, res, next) => {
 
 // Serve static files from frontend build
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
+
+// Serve static images from backend/data/images
+// These are generated images that can be served directly without going through the API
+const imagesDir = path.join(__dirname, 'data', 'images');
+app.use('/static/images', express.static(imagesDir));
+
+// Serve static input images from backend/data/input
+// These are uploaded/input images used for img2img
+const inputDir = path.join(__dirname, 'data', 'input');
+app.use('/static/input', express.static(inputDir));
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -136,7 +159,7 @@ app.post('/api/generate', authenticateRequest, async (req, res) => {
     const result = await generateImage(req.body);
     res.json(result);
   } catch (error) {
-    console.error('Error generating image:', error);
+    logger.error({ error }, 'Error generating image');
     res.status(500).json({ error: error.message });
   }
 });
@@ -150,7 +173,7 @@ app.post('/api/edit', authenticateRequest, upload.single('image'), async (req, r
     }, 'edit');
     res.json(result);
   } catch (error) {
-    console.error('Error editing image:', error);
+    logger.error({ error }, 'Error editing image');
     res.status(500).json({ error: error.message });
   }
 });
@@ -164,7 +187,7 @@ app.post('/api/variation', authenticateRequest, upload.single('image'), async (r
     }, 'variation');
     res.json(result);
   } catch (error) {
-    console.error('Error creating variation:', error);
+    logger.error({ error }, 'Error creating variation');
     res.status(500).json({ error: error.message });
   }
 });
@@ -172,10 +195,23 @@ app.post('/api/variation', authenticateRequest, upload.single('image'), async (r
 // Get all generations
 app.get('/api/generations', async (req, res) => {
   try {
-    const generations = await getAllGenerations();
-    res.json(generations);
+    const limit = req.query.limit ? parseInt(req.query.limit) : null;
+    const offset = req.query.offset ? parseInt(req.query.offset) : null;
+
+    const generations = getAllGenerations({ limit, offset });
+    const total = getGenerationsCount();
+
+    res.json({
+      generations,
+      pagination: {
+        total,
+        limit: limit || total,
+        offset: offset || 0,
+        hasMore: limit && offset ? (offset + limit) < total : false
+      }
+    });
   } catch (error) {
-    console.error('Error fetching generations:', error);
+    logger.error({ error }, 'Error fetching generations');
     res.status(500).json({ error: error.message });
   }
 });
@@ -189,7 +225,7 @@ app.get('/api/generations/:id', async (req, res) => {
     }
     res.json(generation);
   } catch (error) {
-    console.error('Error fetching generation:', error);
+    logger.error({ error }, 'Error fetching generation');
     res.status(500).json({ error: error.message });
   }
 });
@@ -204,7 +240,7 @@ app.get('/api/images/:imageId', async (req, res) => {
     res.set('Content-Type', image.mime_type);
     res.sendFile(image.file_path);
   } catch (error) {
-    console.error('Error fetching image:', error);
+    logger.error({ error }, 'Error fetching image');
     res.status(500).json({ error: error.message });
   }
 });
@@ -220,7 +256,7 @@ app.get('/api/generations/:id/image', async (req, res) => {
     res.set('Content-Type', firstImage.mime_type);
     res.sendFile(firstImage.file_path);
   } catch (error) {
-    console.error('Error fetching image:', error);
+    logger.error({ error }, 'Error fetching image');
     res.status(500).json({ error: error.message });
   }
 });
@@ -231,7 +267,7 @@ app.get('/api/generations/:id/images', async (req, res) => {
     const images = await getImagesByGenerationId(req.params.id);
     res.json(images);
   } catch (error) {
-    console.error('Error fetching images:', error);
+    logger.error({ error }, 'Error fetching images');
     res.status(500).json({ error: error.message });
   }
 });
@@ -243,7 +279,7 @@ app.delete('/api/generations/:id', authenticateRequest, async (req, res) => {
     const result = deleteGeneration(req.params.id);
     res.json({ success: true });
   } catch (error) {
-    console.error('Error deleting generation:', error);
+    logger.error({ error }, 'Error deleting generation');
     res.status(500).json({ error: error.message });
   }
 });
@@ -275,7 +311,7 @@ app.post('/api/queue/generate', authenticateRequest, async (req, res) => {
     await createGeneration(params);
     res.json({ job_id: id, status: GenerationStatus.PENDING });
   } catch (error) {
-    console.error('Error adding to queue:', error);
+    logger.error({ error }, 'Error adding to queue');
     res.status(500).json({ error: error.message });
   }
 });
@@ -331,7 +367,7 @@ app.post('/api/queue/edit', authenticateRequest, upload.fields([{ name: 'image',
     await createGeneration(params);
     res.json({ job_id: id, status: GenerationStatus.PENDING });
   } catch (error) {
-    console.error('Error adding to queue:', error);
+    logger.error({ error }, 'Error adding to queue');
     res.status(500).json({ error: error.message });
   }
 });
@@ -374,7 +410,7 @@ app.post('/api/queue/variation', authenticateRequest, upload.single('image'), as
     await createGeneration(params);
     res.json({ job_id: id, status: GenerationStatus.PENDING });
   } catch (error) {
-    console.error('Error adding to queue:', error);
+    logger.error({ error }, 'Error adding to queue');
     res.status(500).json({ error: error.message });
   }
 });
@@ -392,7 +428,7 @@ app.get('/api/queue', async (req, res) => {
     const stats = getGenerationStats();
     res.json({ jobs, stats });
   } catch (error) {
-    console.error('Error fetching queue:', error);
+    logger.error({ error }, 'Error fetching queue');
     res.status(500).json({ error: error.message });
   }
 });
@@ -403,7 +439,7 @@ app.get('/api/queue/stats', async (req, res) => {
     const stats = getGenerationStats();
     res.json(stats);
   } catch (error) {
-    console.error('Error fetching queue stats:', error);
+    logger.error({ error }, 'Error fetching queue stats');
     res.status(500).json({ error: error.message });
   }
 });
@@ -417,7 +453,7 @@ app.get('/api/queue/:id', async (req, res) => {
     }
     res.json(job);
   } catch (error) {
-    console.error('Error fetching job:', error);
+    logger.error({ error }, 'Error fetching job');
     res.status(500).json({ error: error.message });
   }
 });
@@ -431,7 +467,7 @@ app.delete('/api/queue/:id', authenticateRequest, async (req, res) => {
     }
     res.json({ success: true, job });
   } catch (error) {
-    console.error('Error cancelling job:', error);
+    logger.error({ error }, 'Error cancelling job');
     res.status(500).json({ error: error.message });
   }
 });
@@ -588,7 +624,7 @@ app.get('/api/models', async (req, res) => {
       default_models: modelManager.defaultModels
     });
   } catch (error) {
-    console.error('Error fetching models:', error);
+    logger.error({ error }, 'Error fetching models');
     res.status(500).json({ error: error.message });
   }
 });
@@ -623,7 +659,7 @@ app.get('/api/models/running', async (req, res) => {
       models: result
     });
   } catch (error) {
-    console.error('Error fetching running models:', error);
+    logger.error({ error }, 'Error fetching running models');
     res.status(500).json({ error: error.message });
   }
 });
@@ -656,7 +692,7 @@ app.get('/api/models/downloaded', async (req, res) => {
       models: result
     });
   } catch (error) {
-    console.error('Error fetching downloaded models:', error);
+    logger.error({ error }, 'Error fetching downloaded models');
     res.status(500).json({ error: error.message });
   }
 });
@@ -689,7 +725,7 @@ app.get('/api/models/:id', async (req, res) => {
       } : null
     });
   } catch (error) {
-    console.error('Error fetching model:', error);
+    logger.error({ error }, 'Error fetching model');
     res.status(500).json({ error: error.message });
   }
 });
@@ -710,7 +746,7 @@ app.get('/api/models/:id/status', async (req, res) => {
     const status = modelManager.getModelStatus(modelId);
     res.json(status);
   } catch (error) {
-    console.error('Error fetching model status:', error);
+    logger.error({ error }, 'Error fetching model status');
     res.status(500).json({ error: error.message });
   }
 });
@@ -747,7 +783,7 @@ app.post('/api/models/:id/start', authenticateRequest, async (req, res) => {
       message: `Model ${modelId} is starting`
     });
   } catch (error) {
-    console.error('Error starting model:', error);
+    logger.error({ error }, 'Error starting model');
     res.status(500).json({ error: error.message });
   }
 });
@@ -783,7 +819,7 @@ app.post('/api/models/:id/stop', authenticateRequest, async (req, res) => {
       message: `Model ${modelId} has been stopped`
     });
   } catch (error) {
-    console.error('Error stopping model:', error);
+    logger.error({ error }, 'Error stopping model');
     res.status(500).json({ error: error.message });
   }
 });
@@ -817,7 +853,7 @@ app.get('/api/models/running', async (req, res) => {
       models: result
     });
   } catch (error) {
-    console.error('Error fetching running models:', error);
+    logger.error({ error }, 'Error fetching running models');
     res.status(500).json({ error: error.message });
   }
 });
@@ -845,7 +881,7 @@ app.post('/api/models/download', authenticateRequest, async (req, res) => {
       files,
       (progress) => {
         // Progress callback - could emit WebSocket event here
-        console.log(`Download ${downloadId} progress:`, progress);
+        logger.debug({ downloadId, progress }, 'Download progress');
       }
     );
 
@@ -858,7 +894,7 @@ app.post('/api/models/download', authenticateRequest, async (req, res) => {
       message: `Download started for ${repo}`
     });
   } catch (error) {
-    console.error('Error starting download:', error);
+    logger.error({ error }, 'Error starting download');
     res.status(500).json({ error: error.message });
   }
 });
@@ -878,7 +914,7 @@ app.get('/api/models/download/:id', async (req, res) => {
 
     res.json(status);
   } catch (error) {
-    console.error('Error fetching download status:', error);
+    logger.error({ error }, 'Error fetching download status');
     res.status(500).json({ error: error.message });
   }
 });
@@ -911,7 +947,7 @@ app.delete('/api/models/download/:id', authenticateRequest, async (req, res) => 
       message: 'Download has been cancelled'
     });
   } catch (error) {
-    console.error('Error cancelling download:', error);
+    logger.error({ error }, 'Error cancelling download');
     res.status(500).json({ error: error.message });
   }
 });
@@ -974,7 +1010,7 @@ app.get('/api/models/:id/files/status', async (req, res) => {
       files: fileStatus
     });
   } catch (error) {
-    console.error('Error checking model files:', error);
+    logger.error({ error }, 'Error checking model files');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1001,7 +1037,7 @@ app.post('/api/models/:id/download', authenticateRequest, async (req, res) => {
       model.huggingface.repo,
       model.huggingface.files,
       (progress) => {
-        console.log(`Download ${modelId} progress:`, progress);
+        logger.debug({ modelId, progress }, 'Model download progress');
       }
     );
 
@@ -1014,7 +1050,7 @@ app.post('/api/models/:id/download', authenticateRequest, async (req, res) => {
       message: `Download started for ${model.name}`
     });
   } catch (error) {
-    console.error('Error starting download:', error);
+    logger.error({ error }, 'Error starting download');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1089,7 +1125,7 @@ app.get('/sdapi/v1/sd-models', (req, res) => {
     });
     res.json(result);
   } catch (error) {
-    console.error('Error fetching models:', error);
+    logger.error({ error }, 'Error fetching models');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1118,7 +1154,7 @@ app.get('/sdapi/v1/options', (req, res) => {
       // Add other common options as needed
     });
   } catch (error) {
-    console.error('Error fetching options:', error);
+    logger.error({ error }, 'Error fetching options');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1160,7 +1196,7 @@ app.post('/sdapi/v1/options', authenticateRequest, async (req, res) => {
       const model = modelManager.getModel(modelId);
       if (model && !modelManager.isModelRunning(modelId)) {
         await modelManager.startModel(modelId);
-        console.log(`[API] Started model: ${modelId} (${model.name})`);
+        logger.info({ modelId, modelName: model.name }, 'Started model via SD.next API');
       }
 
       // Return SD.next format response
@@ -1174,7 +1210,7 @@ app.post('/sdapi/v1/options', authenticateRequest, async (req, res) => {
       updated: []
     });
   } catch (error) {
-    console.error('Error setting options:', error);
+    logger.error({ error }, 'Error setting options');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1218,7 +1254,7 @@ app.get('/sdapi/v1/progress', (req, res) => {
       textinfo: null
     });
   } catch (error) {
-    console.error('Error fetching progress:', error);
+    logger.error({ error }, 'Error fetching progress');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1233,7 +1269,7 @@ app.post('/sdapi/v1/interrupt', authenticateRequest, (req, res) => {
     }
     res.json({ success: true });
   } catch (error) {
-    console.error('Error interrupting:', error);
+    logger.error({ error }, 'Error interrupting');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1353,7 +1389,7 @@ app.post('/sdapi/v1/txt2img', authenticateRequest, async (req, res) => {
               const buffer = await fs.readFile(img.file_path);
               return buffer.toString('base64');
             } catch (err) {
-              console.error(`[API] Failed to read image ${img.id}:`, err);
+              logger.error({ err, imgId: img.id }, '[API] Failed to read image');
               return null;
             }
           }));
@@ -1391,7 +1427,7 @@ app.post('/sdapi/v1/txt2img', authenticateRequest, async (req, res) => {
 
     res.status(500).json({ error: 'Generation timeout' });
   } catch (error) {
-    console.error('Error in txt2img:', error);
+    logger.error({ error }, 'Error in txt2img');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1409,7 +1445,7 @@ app.get('/sdapi/v1/upscalers', async (req, res) => {
     const upscalers = getAvailableUpscalers();
     res.json(upscalers);
   } catch (error) {
-    console.error('Error fetching upscalers:', error);
+    logger.error({ error }, 'Error fetching upscalers');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1466,7 +1502,7 @@ app.post('/sdapi/v1/extra-single-image', authenticateRequest, async (req, res) =
       html_info: `<div>Upscaled with ${upscaler_1}</div>`
     });
   } catch (error) {
-    console.error('Error in extra-single-image:', error);
+    logger.error({ error }, 'Error in extra-single-image');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1519,7 +1555,7 @@ app.post('/sdapi/v1/extra-batch-images', authenticateRequest, async (req, res) =
           });
           return resultBuffer.toString('base64');
         } catch (err) {
-          console.error(`Error upscaling image ${img.name}:`, err);
+          logger.error({ err, imageName: img.name }, 'Error upscaling image');
           return null;
         }
       })
@@ -1530,7 +1566,7 @@ app.post('/sdapi/v1/extra-batch-images', authenticateRequest, async (req, res) =
       html_info: `<div>Upscaled ${results.filter(Boolean).length} images with ${upscaler_1}</div>`
     });
   } catch (error) {
-    console.error('Error in extra-batch-images:', error);
+    logger.error({ error }, 'Error in extra-batch-images');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1547,31 +1583,31 @@ const server = http.createServer(app);
 const wsServer = initializeWebSocket(server);
 
 server.listen(PORT, HOST, async () => {
-  console.log(`Server running on http://${HOST}:${PORT}`);
-  console.log(`SD API endpoint: ${process.env.SD_API_ENDPOINT || 'http://192.168.2.180:1231/v1'}`);
-  console.log(`WebSocket server initialized at ws://${HOST}:${PORT}/ws`);
+  logger.info(`Server running on http://${HOST}:${PORT}`);
+  logger.info(`SD API endpoint: ${process.env.SD_API_ENDPOINT || 'http://192.168.2.180:1231/v1'}`);
+  logger.info(`WebSocket server initialized at ws://${HOST}:${PORT}/ws`);
 
   // Initialize model manager
   try {
     modelManager.loadConfig();
     const allModels = modelManager.getAllModels();
     const defaultModel = modelManager.getDefaultModel();
-    console.log(`Model manager initialized: ${allModels.length} models loaded`);
-    console.log(`Default model: ${defaultModel?.id || defaultModel?.name || 'none'}`);
+    logger.info({ count: allModels.length }, `Model manager initialized`);
+    logger.info({ defaultModel: defaultModel?.id || defaultModel?.name || 'none' }, `Default model`);
   } catch (error) {
-    console.error(`Failed to load model configuration: ${error.message}`);
+    logger.error(`Failed to load model configuration: ${error.message}`);
   }
 
   // Start the queue processor
   startQueueProcessor(2000);
-  console.log(`Queue processor started (polling every 2 seconds)`);
+  logger.info(`Queue processor started (polling every 2 seconds)`);
 
   // Log download method info
   const downloadMethod = await getDownloadMethod();
-  console.log(`Download method: ${downloadMethod}`);
+  logger.info({ downloadMethod }, `Download method`);
 
   // Log HuggingFace cache directories
-  console.log(`Python HF Hub cache: ${process.env.HF_HUB_CACHE || process.env.HUGGINGFACE_HUB_CACHE || './models/hf_cache/hub'}`);
-  console.log(`Node.js cache: ${process.env.NODE_HF_CACHE || './models/hf_cache/node'}`);
-  console.log(`Models directory: ${process.env.MODELS_DIR || './models'}`);
+  logger.info({ hfHubCache: process.env.HF_HUB_CACHE || process.env.HUGGINGFACE_HUB_CACHE || './models/hf_cache/hub' }, `Python HF Hub cache`);
+  logger.info({ nodeCache: process.env.NODE_HF_CACHE || './models/hf_cache/node' }, `Node.js cache`);
+  logger.info({ modelsDir: process.env.MODELS_DIR || './models' }, `Models directory`);
 });

@@ -45,7 +45,8 @@ export function History({ onCreateMore }) {
         ...generation,
         images: fullGeneration.images,
         currentImageIndex: imageIndex,
-        imageUrl: `/api/images/${image.id}`,
+        // Use static_url directly, fallback to API endpoint if not available
+        imageUrl: image.static_url || `/api/images/${image.id}`,
         width: image.width,
         height: image.height
       });
@@ -62,7 +63,8 @@ export function History({ onCreateMore }) {
       setSelectedImage({
         ...selectedImage,
         currentImageIndex: newIndex,
-        imageUrl: `/api/images/${image.id}`
+        // Use static_url directly, fallback to API endpoint if not available
+        imageUrl: image.static_url || `/api/images/${image.id}`
       });
     }
   };
@@ -74,7 +76,8 @@ export function History({ onCreateMore }) {
       setSelectedImage({
         ...selectedImage,
         currentImageIndex: newIndex,
-        imageUrl: `/api/images/${image.id}`
+        // Use static_url directly, fallback to API endpoint if not available
+        imageUrl: image.static_url || `/api/images/${image.id}`
       });
     }
   };
@@ -92,10 +95,18 @@ export function History({ onCreateMore }) {
       }
 
       const image = generation.images[imageIndex];
-      const imageResponse = await fetch(`/api/images/${image.id}`);
-      if (!imageResponse.ok) throw new Error("Failed to download image");
+      // Use static_url directly, fallback to API fetch if not available
+      let blob;
+      if (image.static_url) {
+        const imageResponse = await fetch(image.static_url);
+        if (!imageResponse.ok) throw new Error("Failed to download image");
+        blob = await imageResponse.blob();
+      } else {
+        const imageResponse = await fetch(`/api/images/${image.id}`);
+        if (!imageResponse.ok) throw new Error("Failed to download image");
+        blob = await imageResponse.blob();
+      }
 
-      const blob = await imageResponse.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -130,10 +141,10 @@ export function History({ onCreateMore }) {
           const gen = await response.json();
           if (gen.images && gen.images.length > 0) {
             setImageCount(gen.images.length);
-            const imgResponse = await fetch(`/api/images/${gen.images[0].id}`);
-            if (imgResponse.ok) {
-              const blob = await imgResponse.blob();
-              setSrc(URL.createObjectURL(blob));
+            // Use static_url directly instead of fetching via API
+            const firstImage = gen.images[0];
+            if (firstImage.static_url) {
+              setSrc(firstImage.static_url);
             }
           }
         } catch (e) {
