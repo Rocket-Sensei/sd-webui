@@ -65,8 +65,8 @@ export async function createGeneration(data) {
       status, progress, error,
       input_image_path, input_image_mime_type,
       mask_image_path, mask_image_mime_type,
-      strength
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      strength, sample_steps, cfg_scale, sampling_method, clip_skip
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   return stmt.run(
     data.id,
@@ -90,7 +90,11 @@ export async function createGeneration(data) {
     data.mask_image_path || null,
     data.mask_image_mime_type || null,
     // Strength defaults to 0.75 for img2img (variation) mode if not provided
-    data.strength !== undefined ? data.strength : null
+    data.strength !== undefined ? data.strength : null,
+    data.sample_steps || null,
+    data.cfg_scale || null,
+    data.sampling_method || null,
+    data.clip_skip || null
   );
 }
 

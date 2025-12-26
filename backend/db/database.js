@@ -88,7 +88,11 @@ export function initializeDatabase() {
       mask_image_mime_type TEXT,
       strength REAL DEFAULT 0.75,
       model_loading_time_ms INTEGER,
-      generation_time_ms INTEGER
+      generation_time_ms INTEGER,
+      sample_steps INTEGER,
+      cfg_scale REAL,
+      sampling_method TEXT,
+      clip_skip TEXT
     )
   `);
 

@@ -618,6 +618,8 @@ export function UnifiedQueue({ onCreateMore, onEditImage }) {
                   <Box className="h-3 w-3" />
                   <span>{generation.size || "512x512"}</span>
                   {generation.seed && <span>• Seed: {Math.floor(Number(generation.seed))}</span>}
+                  {generation.sample_steps && <span>• Steps: {generation.sample_steps}</span>}
+                  {generation.cfg_scale && <span>• CFG: {generation.cfg_scale}</span>}
                 </div>
                 {(generation.model_loading_time_ms !== undefined || generation.generation_time_ms !== undefined) && (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
