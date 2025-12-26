@@ -9,13 +9,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, cleanup, waitFor } from '@testing-library/react';
 import { WebSocketProvider, useWebSocket, WS_CHANNELS } from '../frontend/src/contexts/WebSocketContext.jsx';
 
-// Mock react-use-websocket
+// Mock react-use-websocket with stable function references
+const mockSendJsonMessage = vi.fn();
+const mockGetWebSocket = vi.fn(() => ({ close: vi.fn() }));
+
 vi.mock('react-use-websocket', () => ({
   default: vi.fn(() => ({
-    sendJsonMessage: vi.fn(),
+    sendJsonMessage: mockSendJsonMessage,
     lastJsonMessage: null,
     readyState: 1, // OPEN
-    getWebSocket: vi.fn(() => ({ close: vi.fn() })),
+    getWebSocket: mockGetWebSocket,
   })),
 }));
 
@@ -32,12 +35,19 @@ describe('WebSocketContext', () => {
 
   describe('Single Global Connection', () => {
     it('should provide the same connection state to multiple hooks', async () => {
-      const { result: result1 } = renderHook(() => useWebSocket(), { wrapper });
-      const { result: result2 } = renderHook(() => useWebSocket(), { wrapper });
+      // Render both hooks in the same provider to test they share the same connection
+      const { result } = renderHook(
+        () => {
+          const hook1 = useWebSocket();
+          const hook2 = useWebSocket();
+          return { hook1, hook2 };
+        },
+        { wrapper }
+      );
 
       // Both hooks should have the same connection state
-      expect(result1.current.isConnected).toBe(result2.current.isConnected);
-      expect(result1.current.getWebSocket).toBe(result2.current.getWebSocket);
+      expect(result.current.hook1.isConnected).toBe(result.current.hook2.isConnected);
+      expect(result.current.hook1.getWebSocket).toBe(result.current.hook2.getWebSocket);
     });
 
     it('should allow multiple components to subscribe to different channels', async () => {

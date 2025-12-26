@@ -25,11 +25,10 @@ describe('Navigation Component', () => {
     vi.clearAllMocks();
   });
 
-  it('should render all 4 navigation items', () => {
+  it('should render all 3 navigation items', () => {
     render(React.createElement(Navigation));
 
-    expect(screen.getByText('Text to Image')).toBeTruthy();
-    expect(screen.getByText('Image to Image')).toBeTruthy();
+    expect(screen.getByText('Generate')).toBeTruthy();
     expect(screen.getByText('Gallery')).toBeTruthy();
     expect(screen.getByText('Models')).toBeTruthy();
   });
@@ -40,8 +39,7 @@ describe('Navigation Component', () => {
     const links = screen.getAllByRole('link');
     const hrefs = links.map(link => link.getAttribute('href'));
 
-    expect(hrefs).toContain('/text-to-image');
-    expect(hrefs).toContain('/image-to-image');
+    expect(hrefs).toContain('/generate');
     expect(hrefs).toContain('/gallery');
     expect(hrefs).toContain('/models');
   });
@@ -51,7 +49,7 @@ describe('Navigation Component', () => {
 
     // Check for SVG icons (lucide-react icons render as SVG)
     const svgs = container.querySelectorAll('svg');
-    expect(svgs.length).toBeGreaterThanOrEqual(4);
+    expect(svgs.length).toBeGreaterThanOrEqual(3);
   });
 
   it('should have proper CSS classes for layout', () => {

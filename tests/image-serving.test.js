@@ -7,85 +7,84 @@
  * - Image response includes static_url field
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createServer } from 'http';
-import { Client } from 'undici';
-import request from 'supertest';
+import { startServer, stopServer, SERVER_PORT, SERVER_HOST } from './helpers/testServer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Import backend modules
-import { initializeDatabase, getImagesDir, getInputImagesDir, closeDatabase } from '../backend/db/database.js';
+// Test-specific database path - MUST be set before importing database modules
+const TEST_DB_PATH = path.join(__dirname, '..', 'backend', 'data', 'test-sd-webui.db');
+process.env.DB_PATH = TEST_DB_PATH;
+
+// Import backend modules AFTER setting DB_PATH
+import { initializeDatabase, getImagesDir, getInputImagesDir, closeDatabase, clearDatabase } from '../backend/db/database.js';
 import { createGeneration, createGeneratedImage, getAllGenerations, getGenerationsCount, getImageById } from '../backend/db/queries.js';
 
-// Test server setup
-let server;
-let serverUrl;
-
-async function startTestServer() {
-  const { default: app } = await import('../backend/server.js');
-  const port = 30101; // Use a different port for testing
-  server = createServer(app);
-  serverUrl = `http://localhost:${port}`;
-
-  await new Promise((resolve) => {
-    server.listen(port, resolve);
-  });
-
-  return { app, port, serverUrl };
-}
-
-async function stopTestServer() {
-  if (server) {
-    await new Promise((resolve) => {
-      server.close(resolve);
-    });
-  }
-}
+const API_URL = `http://${SERVER_HOST}:${SERVER_PORT}`;
 
 describe('Image Serving and Pagination', () => {
   beforeEach(async () => {
-    // Initialize database
+    // Initialize database (creates if not exists)
     initializeDatabase();
 
-    // Start test server
-    await startTestServer();
+    // Clear any existing data from previous test runs
+    clearDatabase();
+
+    // Start test server (will also use the test database path via env var)
+    await startServer();
   });
 
   afterEach(async () => {
-    // Stop test server
-    await stopTestServer();
+    // Stop test server (this will close the database connection via SIGTERM)
+    await stopServer();
 
-    // Close database
-    await closeDatabase();
+    // Close database connection in this module
+    closeDatabase();
 
-    // Clean up test database file
-    const dbPath = path.join(__dirname, '..', 'backend', 'data', 'sd-webui.db');
-    if (fs.existsSync(dbPath)) {
-      fs.unlinkSync(dbPath);
-    }
-    const walPath = dbPath + '-wal';
-    if (fs.existsSync(walPath)) {
-      fs.unlinkSync(walPath);
-    }
-    const shmPath = dbPath + '-shm';
-    if (fs.existsSync(shmPath)) {
-      fs.unlinkSync(shmPath);
+    // Clean up test image files
+    const imagesDir = path.join(__dirname, '..', 'backend', 'data', 'images');
+    const inputDir = path.join(__dirname, '..', 'backend', 'data', 'input');
+    cleanupDir(imagesDir);
+    cleanupDir(inputDir);
+  });
+
+  afterAll(async () => {
+    // Clean up test database files after all tests
+    for (const ext of ['', '-wal', '-shm']) {
+      const filePath = TEST_DB_PATH + ext;
+      if (fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (e) {
+          // Ignore errors
+        }
+      }
     }
   });
 
+  // Helper function to clean up image files
+  function cleanupDir(dir) {
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
+        const filePath = path.join(dir, file);
+        try {
+          fs.unlinkSync(filePath);
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+    }
+  }
+
   describe('Static File Serving Configuration', () => {
     it('should have static file middleware configured', async () => {
-      const { app } = await import('../backend/server.js');
-
       // Check that static middleware is registered by trying to access frontend dist
-      const response = await request(app)
-        .get('/')
-        .expect(200);
+      const response = await fetch(API_URL + '/');
 
       // The request should not error (may return frontend or 404 but not crash)
       expect(response.status).toBeLessThan(500);
@@ -102,12 +101,12 @@ describe('Image Serving and Pagination', () => {
       fs.writeFileSync(testFilePath, Buffer.from('test-png-data'));
 
       // Try to access the static file
-      const { app } = await import('../backend/server.js');
-      const response = await request(app)
-        .get(`/static/images/${testFilename}`)
-        .expect(200);
+      const response = await fetch(`${API_URL}/static/images/${testFilename}`);
+      expect(response.status).toBe(200);
 
-      expect(response.body).toEqual(Buffer.from('test-png-data'));
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      expect(buffer).toEqual(Buffer.from('test-png-data'));
 
       // Clean up
       fs.unlinkSync(testFilePath);
@@ -124,22 +123,20 @@ describe('Image Serving and Pagination', () => {
       fs.writeFileSync(testFilePath, Buffer.from('input-test-data'));
 
       // Try to access the static file
-      const { app } = await import('../backend/server.js');
-      const response = await request(app)
-        .get(`/static/input/${testFilename}`)
-        .expect(200);
+      const response = await fetch(`${API_URL}/static/input/${testFilename}`);
+      expect(response.status).toBe(200);
 
-      expect(response.body).toEqual(Buffer.from('input-test-data'));
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      expect(buffer).toEqual(Buffer.from('input-test-data'));
 
       // Clean up
       fs.unlinkSync(testFilePath);
     });
 
     it('should return 404 for non-existent static files', async () => {
-      const { app } = await import('../backend/server.js');
-      await request(app)
-        .get('/static/images/non-existent.png')
-        .expect(404);
+      const response = await fetch(`${API_URL}/static/images/non-existent.png`);
+      expect(response.status).toBe(404);
     });
   });
 
@@ -243,16 +240,16 @@ describe('Image Serving and Pagination', () => {
     });
 
     it('should return paginated results with limit parameter', async () => {
-      const { app } = await import('../backend/server.js');
-      const response = await request(app)
-        .get('/api/generations?limit=10')
-        .expect(200);
+      const response = await fetch(`${API_URL}/api/generations?limit=10`);
+      expect(response.status).toBe(200);
 
-      expect(response.body).toHaveProperty('generations');
-      expect(response.body).toHaveProperty('pagination');
-      expect(response.body.generations).toBeInstanceOf(Array);
-      expect(response.body.generations.length).toBe(10);
-      expect(response.body.pagination).toEqual({
+      const data = await response.json();
+
+      expect(data).toHaveProperty('generations');
+      expect(data).toHaveProperty('pagination');
+      expect(Array.isArray(data.generations)).toBe(true);
+      expect(data.generations.length).toBe(10);
+      expect(data.pagination).toEqual({
         total: 25,
         limit: 10,
         offset: 0,
@@ -261,59 +258,52 @@ describe('Image Serving and Pagination', () => {
     });
 
     it('should support offset parameter for pagination', async () => {
-      const { app } = await import('../backend/server.js');
-
       // Get first page
-      const page1 = await request(app)
-        .get('/api/generations?limit=10&offset=0')
-        .expect(200);
+      const page1Response = await fetch(`${API_URL}/api/generations?limit=10&offset=0`);
+      expect(page1Response.status).toBe(200);
+      const page1 = await page1Response.json();
 
-      expect(page1.body.generations.length).toBe(10);
+      expect(page1.generations.length).toBe(10);
 
       // Get second page
-      const page2 = await request(app)
-        .get('/api/generations?limit=10&offset=10')
-        .expect(200);
+      const page2Response = await fetch(`${API_URL}/api/generations?limit=10&offset=10`);
+      expect(page2Response.status).toBe(200);
+      const page2 = await page2Response.json();
 
-      expect(page2.body.generations.length).toBe(10);
+      expect(page2.generations.length).toBe(10);
 
       // Verify different items
-      const page1Ids = page1.body.generations.map(g => g.id);
-      const page2Ids = page2.body.generations.map(g => g.id);
+      const page1Ids = page1.generations.map(g => g.id);
+      const page2Ids = page2.generations.map(g => g.id);
       const hasOverlap = page1Ids.some(id => page2Ids.includes(id));
       expect(hasOverlap).toBe(false);
     });
 
     it('should return correct hasMore flag', async () => {
-      const { app } = await import('../backend/server.js');
-
       // First page - should have more
-      const page1 = await request(app)
-        .get('/api/generations?limit=10&offset=0')
-        .expect(200);
-      expect(page1.body.pagination.hasMore).toBe(true);
+      const page1Response = await fetch(`${API_URL}/api/generations?limit=10&offset=0`);
+      const page1 = await page1Response.json();
+      expect(page1.pagination.hasMore).toBe(true);
 
       // Second page - should have more
-      const page2 = await request(app)
-        .get('/api/generations?limit=10&offset=10')
-        .expect(200);
-      expect(page2.body.pagination.hasMore).toBe(true);
+      const page2Response = await fetch(`${API_URL}/api/generations?limit=10&offset=10`);
+      const page2 = await page2Response.json();
+      expect(page2.pagination.hasMore).toBe(true);
 
       // Third page - should not have more (only 5 items left)
-      const page3 = await request(app)
-        .get('/api/generations?limit=10&offset=20')
-        .expect(200);
-      expect(page3.body.pagination.hasMore).toBe(false);
+      const page3Response = await fetch(`${API_URL}/api/generations?limit=10&offset=20`);
+      const page3 = await page3Response.json();
+      expect(page3.pagination.hasMore).toBe(false);
     });
 
     it('should return all results when no limit specified', async () => {
-      const { app } = await import('../backend/server.js');
-      const response = await request(app)
-        .get('/api/generations')
-        .expect(200);
+      const response = await fetch(`${API_URL}/api/generations`);
+      expect(response.status).toBe(200);
 
-      expect(response.body.generations.length).toBe(25);
-      expect(response.body.pagination).toEqual({
+      const data = await response.json();
+
+      expect(data.generations.length).toBe(25);
+      expect(data.pagination).toEqual({
         total: 25,
         limit: 25,
         offset: 0,
@@ -322,13 +312,13 @@ describe('Image Serving and Pagination', () => {
     });
 
     it('should return empty array when offset exceeds total', async () => {
-      const { app } = await import('../backend/server.js');
-      const response = await request(app)
-        .get('/api/generations?limit=10&offset=100')
-        .expect(200);
+      const response = await fetch(`${API_URL}/api/generations?limit=10&offset=100`);
+      expect(response.status).toBe(200);
 
-      expect(response.body.generations).toEqual([]);
-      expect(response.body.pagination).toEqual({
+      const data = await response.json();
+
+      expect(data.generations).toEqual([]);
+      expect(data.pagination).toEqual({
         total: 25,
         limit: 10,
         offset: 100,
@@ -339,7 +329,6 @@ describe('Image Serving and Pagination', () => {
 
   describe('Request Logging - Static Files Excluded', () => {
     it('should not log requests to /static/images/* paths', async () => {
-      const { app } = await import('../backend/server.js');
       const imagesDir = getImagesDir();
 
       // Create a test image
@@ -349,12 +338,13 @@ describe('Image Serving and Pagination', () => {
       fs.writeFileSync(filePath, Buffer.from('data'));
 
       // Make a request to the static file
-      const response = await request(app)
-        .get(`/static/images/${filename}`)
-        .expect(200);
+      const response = await fetch(`${API_URL}/static/images/${filename}`);
+      expect(response.status).toBe(200);
 
       // Check that the request was successful
-      expect(response.body).toEqual(Buffer.from('data'));
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      expect(buffer).toEqual(Buffer.from('data'));
 
       // Verify the file was not logged to http.log
       const httpLogPath = path.join(__dirname, '..', 'backend', 'logs', 'http.log');
@@ -369,7 +359,6 @@ describe('Image Serving and Pagination', () => {
     });
 
     it('should not log requests to /static/input/* paths', async () => {
-      const { app } = await import('../backend/server.js');
       const inputDir = getInputImagesDir();
 
       // Create a test image
@@ -379,12 +368,13 @@ describe('Image Serving and Pagination', () => {
       fs.writeFileSync(filePath, Buffer.from('data'));
 
       // Make a request to the static file
-      const response = await request(app)
-        .get(`/static/input/${filename}`)
-        .expect(200);
+      const response = await fetch(`${API_URL}/static/input/${filename}`);
+      expect(response.status).toBe(200);
 
       // Check that the request was successful
-      expect(response.body).toEqual(Buffer.from('data'));
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      expect(buffer).toEqual(Buffer.from('data'));
 
       // Verify the file was not logged to http.log
       const httpLogPath = path.join(__dirname, '..', 'backend', 'logs', 'http.log');
@@ -399,7 +389,6 @@ describe('Image Serving and Pagination', () => {
     });
 
     it('should not log requests to /api/images/:imageId', async () => {
-      const { app } = await import('../backend/server.js');
       const imagesDir = getImagesDir();
 
       // Create a test image
@@ -426,12 +415,13 @@ describe('Image Serving and Pagination', () => {
       });
 
       // Make a request to the image API
-      const response = await request(app)
-        .get(`/api/images/${imageId}`)
-        .expect(200);
+      const response = await fetch(`${API_URL}/api/images/${imageId}`);
+      expect(response.status).toBe(200);
 
       // Check that the request was successful
-      expect(response.body).toEqual(Buffer.from('data'));
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      expect(buffer).toEqual(Buffer.from('data'));
 
       // Verify the request was not logged to http.log
       const httpLogPath = path.join(__dirname, '..', 'backend', 'logs', 'http.log');
@@ -446,7 +436,6 @@ describe('Image Serving and Pagination', () => {
     });
 
     it('should not log requests to /api/generations/:id/image', async () => {
-      const { app } = await import('../backend/server.js');
       const imagesDir = getImagesDir();
 
       // Create a test image
@@ -473,12 +462,13 @@ describe('Image Serving and Pagination', () => {
       });
 
       // Make a request to the generation image API
-      const response = await request(app)
-        .get(`/api/generations/${generationId}/image`)
-        .expect(200);
+      const response = await fetch(`${API_URL}/api/generations/${generationId}/image`);
+      expect(response.status).toBe(200);
 
       // Check that the request was successful
-      expect(response.body).toEqual(Buffer.from('data'));
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      expect(buffer).toEqual(Buffer.from('data'));
 
       // Verify the request was not logged to http.log
       const httpLogPath = path.join(__dirname, '..', 'backend', 'logs', 'http.log');
@@ -533,6 +523,85 @@ describe('Image Serving and Pagination', () => {
       const count = getGenerationsCount();
       expect(typeof count).toBe('number');
       expect(count).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('Image API Error Handling', () => {
+    it('should return 404 when image file does not exist on disk', async () => {
+      const imagesDir = getImagesDir();
+
+      // Create a generation and image record in database
+      const generationId = `gen-missing-${Date.now()}`;
+      const imageId = `img-missing-${Date.now()}`;
+      await createGeneration({
+        id: generationId,
+        type: 'generate',
+        model: 'test-model',
+        prompt: 'test',
+        status: 'completed',
+        seed: 12345
+      });
+
+      // Create image record but DO NOT create the actual file
+      const db = (await import('../backend/db/database.js')).getDatabase();
+      const stmt = db.prepare(`
+        INSERT INTO generated_images (id, generation_id, file_path, mime_type)
+        VALUES (?, ?, ?, ?)
+      `);
+      stmt.run(imageId, generationId, path.join(imagesDir, 'nonexistent.png'), 'image/png');
+
+      // Request the image that doesn't exist
+      const response = await fetch(`${API_URL}/api/images/${imageId}`);
+      expect(response.status).toBe(404);
+      const json = await response.json();
+      expect(json.error).toBe('Image file not found on disk');
+    });
+
+    it('should return 404 for non-existent image ID', async () => {
+      const response = await fetch(`${API_URL}/api/images/nonexistent-image-id`);
+      expect(response.status).toBe(404);
+      const json = await response.json();
+      expect(json.error).toBe('Image not found');
+    });
+
+    it('should handle absolute and relative file paths correctly', async () => {
+      const imagesDir = getImagesDir();
+
+      // Create a test image
+      fs.mkdirSync(imagesDir, { recursive: true });
+      const imageId = `img-path-${Date.now()}`;
+      const filename = `${imageId}.png`;
+      const filePath = path.join(imagesDir, filename);
+      fs.writeFileSync(filePath, Buffer.from('path-test-data'));
+
+      // Create a generation with image - the file_path stored will be absolute
+      const generationId = `gen-path-${Date.now()}`;
+      await createGeneration({
+        id: generationId,
+        type: 'generate',
+        model: 'test-model',
+        prompt: 'test',
+        status: 'completed',
+        seed: 12345
+      });
+      await createGeneratedImage({
+        id: imageId,
+        generation_id: generationId,
+        image_data: Buffer.from('path-test-data')
+      });
+
+      // Verify the file_path in database is absolute
+      const image = getImageById(imageId);
+      expect(path.isAbsolute(image.file_path)).toBe(true);
+
+      // Request via API - should work correctly
+      const response = await fetch(`${API_URL}/api/images/${imageId}`);
+      expect(response.status).toBe(200);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      expect(buffer).toEqual(Buffer.from('path-test-data'));
+
+      // Clean up
+      fs.unlinkSync(filePath);
     });
   });
 });

@@ -56,24 +56,49 @@ async function isServerRunning() {
 
 /**
  * Start the backend server
+ * @param {boolean} force - Force restart even if server is running
  * @returns {Promise<void>}
  */
-async function startServer() {
+async function startServer(force = false) {
   // Check if already starting
   if (isStarting) {
     throw new Error('Server is already starting');
   }
 
-  // Check if server is already running
-  if (serverProcess !== null) {
-    console.log('Server is already running (process tracked)');
-    return;
-  }
+  // If forcing a restart, stop any existing server first
+  if (force) {
+    if (serverProcess !== null) {
+      await stopServer();
+    }
+    // Wait a bit for the port to be released
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-  // Check if server is running externally (not tracked by us)
-  if (await isServerRunning()) {
-    console.log('Server is already running (external process)');
-    return;
+    // Check if there's still an external process running and kill it
+    if (await isServerRunning()) {
+      console.log('External server still running, waiting for port to be released...');
+      let attempts = 0;
+      while (await isServerRunning() && attempts < 20) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        attempts++;
+      }
+      if (await isServerRunning()) {
+        throw new Error('Failed to stop existing server after 5 seconds');
+      }
+    }
+  } else {
+    // Check if server is already running (tracked)
+    if (serverProcess !== null) {
+      console.log('Server is already running (process tracked)');
+      return;
+    }
+
+    // Check if server is running externally (not tracked by us)
+    if (await isServerRunning()) {
+      console.log('Server is already running (external process) - killing it...');
+      // Kill the external process and start fresh
+      await stopServer();
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
   }
 
   isStarting = true;
@@ -90,7 +115,10 @@ async function startServer() {
       ...process.env,
       PORT: SERVER_PORT,
       HOST: SERVER_HOST,
-      NODE_ENV: 'test'
+      NODE_ENV: 'test',
+      // Ensure DB_PATH is passed through to the server process
+      DB_PATH: process.env.DB_PATH,
+      IMAGES_DIR: process.env.IMAGES_DIR
     }
   });
 
@@ -139,7 +167,34 @@ async function startServer() {
  */
 async function stopServer() {
   if (!serverProcess) {
-    console.log('No server process to stop');
+    // Check if there's an external server running (from a previous test run)
+    if (await isServerRunning()) {
+      console.log('Stopping external server by finding and killing its process...');
+      // Try to find and kill the process using the port
+      try {
+        // On Linux/macOS, use lsof to find the process
+        const { spawn } = await import('child_process');
+        const findProcess = spawn('lsof', ['-ti', `:${SERVER_PORT}`]);
+        let pid = '';
+        for await (const chunk of findProcess.stdout) {
+          pid += chunk.toString();
+        }
+        pid = pid.trim();
+        if (pid) {
+          process.kill(parseInt(pid), 'SIGTERM');
+          // Wait for it to exit
+          await new Promise(resolve => setTimeout(resolve, 500));
+          // Check if still running, force kill if needed
+          if (await isServerRunning()) {
+            process.kill(parseInt(pid), 'SIGKILL');
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+          console.log('External server stopped');
+        }
+      } catch (e) {
+        console.log('Could not stop external server:', e.message);
+      }
+    }
     return;
   }
 

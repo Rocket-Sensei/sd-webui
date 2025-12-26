@@ -9,13 +9,31 @@ const logger = createLogger('database');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const dbPath = process.env.DB_PATH || `${__dirname}/../data/sd-webui.db`;
-const dbDir = dirname(dbPath);
-const imagesDir = process.env.IMAGES_DIR || `${__dirname}/../data/images`;
+// Helper function to get dbPath (reads env var dynamically to support test mode)
+function getDbPath() {
+  return process.env.DB_PATH || `${__dirname}/../data/sd-webui.db`;
+}
+
+// Helper function to get imagesDir (reads env var dynamically)
+function getImagesDirPath() {
+  return process.env.IMAGES_DIR || `${__dirname}/../data/images`;
+}
 
 let db;
+let dbPath = getDbPath();
+let dbDir = dirname(dbPath);
+let imagesDir = getImagesDirPath();
+
+// Update dbPath and directories when env changes (for test support)
+function refreshDbPath() {
+  dbPath = getDbPath();
+  dbDir = dirname(dbPath);
+  imagesDir = getImagesDirPath();
+}
 
 export function initializeDatabase() {
+  // Refresh dbPath in case env vars changed (for test support)
+  refreshDbPath();
   // Ensure data directory exists
   if (!existsSync(dbDir)) {
     mkdirSync(dbDir, { recursive: true });
@@ -45,8 +63,17 @@ export function initializeDatabase() {
       response_format TEXT DEFAULT 'b64_json',
       user_id TEXT,
       source_image_id TEXT,
+      status TEXT DEFAULT 'pending',
+      progress REAL DEFAULT 0,
+      error TEXT,
       created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-      updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+      updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+      started_at INTEGER,
+      completed_at INTEGER,
+      input_image_path TEXT,
+      input_image_mime_type TEXT,
+      mask_image_path TEXT,
+      mask_image_mime_type TEXT
     )
   `);
 
@@ -184,6 +211,14 @@ export function initializeDatabase() {
 }
 
 export function getDatabase() {
+  // Check if DB_PATH has changed since initialization
+  const currentDbPath = getDbPath();
+  if (db && dbPath !== currentDbPath) {
+    // Path has changed, close old connection and reinitialize
+    logger.info({ oldPath: dbPath, newPath: currentDbPath }, 'DB_PATH changed, reinitializing database');
+    closeDatabase();
+  }
+
   if (!db) {
     initializeDatabase();
   }
@@ -233,4 +268,60 @@ export function deleteGeneration(id) {
   // Delete from database (cascade will handle generated_images)
   const stmt = database.prepare('DELETE FROM generations WHERE id = ?');
   return stmt.run(id);
+}
+
+/**
+ * Clear all data from database tables (for testing)
+ * This preserves the schema but removes all data
+ *
+ * SAFETY: This function will NOT clear the database if it appears to be
+ * a production database. The database is considered safe to clear if:
+ * 1. DB_PATH contains 'test' (e.g., 'test-sd-webui.db')
+ * 2. OR DB_PATH is not the default production database path
+ *
+ * This prevents accidental data loss in production.
+ */
+export function clearDatabase() {
+  const database = getDatabase();
+  const currentDbPath = getDbPath();
+
+  // Get the default (production) database path
+  const defaultDbPath = `${__dirname}/../data/sd-webui.db`;
+
+  // Safety check: Don't clear production database
+  // The database is considered "safe to clear" if:
+  // 1. The path contains 'test' anywhere (e.g., test-sd-webui.db, /data/test/, etc.)
+  // 2. OR the path is NOT the default production database path
+  const isProductionDb = currentDbPath === defaultDbPath;
+  const isTestDb = currentDbPath.includes('test');
+
+  if (isProductionDb && !isTestDb) {
+    logger.error({ dbPath: currentDbPath }, 'Refusing to clear production database');
+    throw new Error(
+      'Cannot clear database: This appears to be the production database at ' +
+      `"${currentDbPath}". To prevent accidental data loss, ` +
+      'clearDatabase() will only work if:\n' +
+      '  1. DB_PATH contains "test" (e.g., "test-sd-webui.db"), or\n' +
+      '  2. You use a custom database path (not the default production path).\n' +
+      'Set process.env.DB_PATH to a test database path before running tests.'
+    );
+  }
+
+  // Delete all data from tables in correct order (respecting foreign keys)
+  database.prepare('DELETE FROM model_download_files').run();
+  database.prepare('DELETE FROM model_downloads').run();
+  database.prepare('DELETE FROM generated_images').run();
+  database.prepare('DELETE FROM generations').run();
+  database.prepare('DELETE FROM queue').run();
+  database.prepare('DELETE FROM model_processes').run();
+  database.prepare('DELETE FROM models').run();
+
+  logger.info({ dbPath: currentDbPath }, 'Database cleared');
+}
+
+/**
+ * Check if database is open
+ */
+export function isDatabaseOpen() {
+  return db !== null && db !== undefined;
 }

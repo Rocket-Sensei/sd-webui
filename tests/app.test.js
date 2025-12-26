@@ -12,12 +12,8 @@ vi.mock('../frontend/src/components/Navigation', () => ({
   Navigation: () => React.createElement('nav', { 'data-testid': 'navigation' }, 'Navigation'),
 }));
 
-vi.mock('../frontend/src/components/TextToImage', () => ({
-  TextToImage: () => React.createElement('div', { 'data-testid': 'text-to-image' }, 'TextToImage'),
-}));
-
-vi.mock('../frontend/src/components/ImageToImage', () => ({
-  ImageToImage: () => React.createElement('div', { 'data-testid': 'image-to-image' }, 'ImageToImage'),
+vi.mock('../frontend/src/components/Generate', () => ({
+  Generate: () => React.createElement('div', { 'data-testid': 'generate' }, 'Generate'),
 }));
 
 vi.mock('../frontend/src/components/UnifiedQueue', () => ({
@@ -28,22 +24,24 @@ vi.mock('../frontend/src/components/ModelManager', () => ({
   ModelManager: () => React.createElement('div', { 'data-testid': 'models' }, 'ModelManager'),
 }));
 
-vi.mock('../frontend/src/components/ui/toast', () => ({
-  ToastProvider: ({ children }) => React.createElement('div', null, children),
-  ToastViewport: () => React.createElement('div', null),
-  Toast: () => React.createElement('div', null),
-  ToastTitle: ({ children }) => React.createElement('div', null, children),
-  ToastDescription: ({ children }) => React.createElement('div', null, children),
-  ToastClose: () => React.createElement('button', null),
-  ToastAction: () => React.createElement('button', null),
+vi.mock('../frontend/src/components/ui/sonner', () => ({
+  Toaster: () => React.createElement('div', { 'data-testid': 'toaster' }, 'Toaster'),
 }));
 
-vi.mock('../frontend/src/hooks/useToast', () => ({
-  Toaster: () => React.createElement('div', { 'data-testid': 'toaster' }, 'Toaster'),
+vi.mock('../frontend/src/components/WebSocketStatusIndicator', () => ({
+  WebSocketStatusIndicator: () => React.createElement('div', { 'data-testid': 'websocket-status' }, 'WebSocketStatus'),
+}));
+
+vi.mock('../frontend/src/contexts/WebSocketContext', () => ({
+  WebSocketProvider: ({ children }) => React.createElement('div', null, children),
 }));
 
 vi.mock('../frontend/src/hooks/useImageGeneration', () => ({
   useGenerations: () => ({ fetchGenerations: vi.fn() }),
+}));
+
+vi.mock('../frontend/src/components/ApiKeyModal', () => ({
+  ApiKeyProvider: ({ children }) => React.createElement('div', null, children),
 }));
 
 const renderWithRouter = (component, { initialEntries = ['/'] } = {}) => {
@@ -70,19 +68,14 @@ describe('App Component', () => {
     expect(screen.getByTestId('toaster')).toBeTruthy();
   });
 
-  it('should render TextToImage component at / route (redirected)', () => {
+  it('should render Generate component at / route (redirected)', () => {
     renderWithRouter(React.createElement(App));
-    expect(screen.getByTestId('text-to-image')).toBeTruthy();
+    expect(screen.getByTestId('generate')).toBeTruthy();
   });
 
-  it('should render TextToImage component at /text-to-image route', () => {
-    renderWithRouter(React.createElement(App), { initialEntries: ['/text-to-image'] });
-    expect(screen.getByTestId('text-to-image')).toBeTruthy();
-  });
-
-  it('should render ImageToImage component at /image-to-image route', () => {
-    renderWithRouter(React.createElement(App), { initialEntries: ['/image-to-image'] });
-    expect(screen.getByTestId('image-to-image')).toBeTruthy();
+  it('should render Generate component at /generate route', () => {
+    renderWithRouter(React.createElement(App), { initialEntries: ['/generate'] });
+    expect(screen.getByTestId('generate')).toBeTruthy();
   });
 
   it('should render UnifiedQueue component at /gallery route', () => {
@@ -95,18 +88,23 @@ describe('App Component', () => {
     expect(screen.getByTestId('models')).toBeTruthy();
   });
 
-  it('should redirect root / to /text-to-image', () => {
+  it('should redirect root / to /generate', () => {
     renderWithRouter(React.createElement(App), { initialEntries: ['/'] });
-    expect(screen.getByTestId('text-to-image')).toBeTruthy();
+    expect(screen.getByTestId('generate')).toBeTruthy();
   });
 
-  it('should pass onGenerated prop to TextToImage', () => {
-    const { container } = renderWithRouter(React.createElement(App), { initialEntries: ['/text-to-image'] });
-    expect(screen.getByTestId('text-to-image')).toBeTruthy();
+  it('should pass onGenerated prop to Generate', () => {
+    const { container } = renderWithRouter(React.createElement(App), { initialEntries: ['/generate'] });
+    expect(screen.getByTestId('generate')).toBeTruthy();
   });
 
   it('should pass onCreateMore prop to UnifiedQueue', () => {
     const { container } = renderWithRouter(React.createElement(App), { initialEntries: ['/gallery'] });
     expect(screen.getByTestId('gallery')).toBeTruthy();
+  });
+
+  it('should render WebSocketStatusIndicator', () => {
+    renderWithRouter(React.createElement(App));
+    expect(screen.getByTestId('websocket-status')).toBeTruthy();
   });
 });

@@ -32,11 +32,14 @@ export function LogViewer({ generationId, onClose }) {
   const logContainerRef = useRef(null);
 
   const fetchLogs = async () => {
-    if (!generationId) return;
-
     setIsLoading(true);
     try {
-      const response = await authenticatedFetch(`/api/generations/${generationId}/logs?limit=100`);
+      // If generationId is provided, fetch logs for that generation
+      // Otherwise, fetch all logs
+      const url = generationId
+        ? `/api/generations/${generationId}/logs?limit=100`
+        : `/api/logs?limit=200`;
+      const response = await authenticatedFetch(url);
       if (!response.ok) throw new Error("Failed to fetch logs");
 
       const data = await response.json();
@@ -50,7 +53,7 @@ export function LogViewer({ generationId, onClose }) {
 
   useEffect(() => {
     fetchLogs();
-    // Auto-refresh every 5 seconds if generation is still processing
+    // Auto-refresh every 5 seconds
     const interval = setInterval(fetchLogs, 5000);
     return () => clearInterval(interval);
   }, [generationId]);
@@ -107,7 +110,13 @@ export function LogViewer({ generationId, onClose }) {
         <div className="flex items-center gap-2">
           <Terminal className="h-4 w-4 text-green-400" />
           <span className="text-sm font-medium text-gray-200">
-            Generation Logs {generationId && <span className="text-gray-500">({generationId.slice(0, 8)}...)</span>}
+            {generationId ? (
+              <>
+                Generation Logs <span className="text-gray-500">({generationId.slice(0, 8)}...)</span>
+              </>
+            ) : (
+              <>System Logs</>
+            )}
           </span>
           {filteredLogs.length > 0 && (
             <Badge variant="outline" className="text-xs">
@@ -205,7 +214,7 @@ export function LogViewer({ generationId, onClose }) {
           </div>
         ) : filteredLogs.length === 0 ? (
           <div className="flex items-center justify-center h-full text-gray-500">
-            No logs found for this generation
+            {generationId ? "No logs found for this generation" : "No logs found"}
           </div>
         ) : (
           <div className="space-y-0.5">

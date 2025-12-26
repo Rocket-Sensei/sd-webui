@@ -184,7 +184,7 @@ class CLIHandler {
     const negativePrompt = params.negative_prompt || '';
     const size = params.size || '1024x1024';
     const seed = params.seed ?? generateRandomSeed();
-    const quality = params.quality || 'medium';
+    const quality = params.quality; // Don't default to 'medium' - let sample_steps or model default take precedence
     const style = params.style;
     const n = params.n || 1;
 
@@ -212,9 +212,20 @@ class CLIHandler {
     // Seed
     cmd.push('--seed', seed.toString());
 
-    // Sampling steps (mapped from quality)
-    const steps = mapQualityToSteps(quality);
-    cmd.push('--steps', steps.toString());
+    // Determine sampling steps:
+    // 1. If sample_steps is explicitly provided, use it
+    // 2. Otherwise, if quality is provided, map quality to steps
+    // 3. Otherwise, use default (undefined, let SD.cpp decide)
+    let steps;
+    if (params.sample_steps !== undefined) {
+      steps = params.sample_steps;
+    } else if (quality !== undefined && quality !== null && quality !== '') {
+      steps = mapQualityToSteps(quality);
+    }
+    // Only add --steps if we have a value
+    if (steps !== undefined) {
+      cmd.push('--steps', steps.toString());
+    }
 
     // Number of images
     if (n > 1) {
@@ -233,11 +244,6 @@ class CLIHandler {
 
     const samplingMethod = params.sampling_method ?? 'euler';
     cmd.push('--sampling-method', samplingMethod);
-
-    // Sample steps (if explicitly provided, override quality-based mapping)
-    if (params.sample_steps !== undefined) {
-      cmd.push('--steps', params.sample_steps.toString());
-    }
 
     // CLIP skip (if provided)
     if (params.clip_skip !== undefined && params.clip_skip !== -1) {

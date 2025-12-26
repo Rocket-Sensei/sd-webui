@@ -155,9 +155,33 @@ function createHttpLogger() {
 }
 
 /**
- * Create SD.cpp-specific logger (writes to sdcpp.log)
+ * Create SD.cpp-specific logger (writes to sdcpp.log and optionally stdout)
  */
 function createSdCppLogger() {
+  const streams = [
+    // All SD.cpp logs go to sdcpp.log
+    { level: 'trace', stream: createFileDestination('sdcpp.log') },
+  ];
+
+  // Also output to console if LOG_TO_STDOUT is enabled (default: true)
+  // Use pino-pretty for nice formatting with [SD.cpp] prefix
+  if (isStdoutEnabled()) {
+    const prettyStream = build({
+      destination: process.stdout,
+      colorize: true,
+      translateTime: 'HH:MM:ss.l',
+      ignore: 'pid,hostname,levelNum',
+      singleLine: false,
+      levelFirst: true,
+      messageFormat: '[SD.cpp] {if generation_id}[gen:{generation_id}] {end}{msg}',
+      customColors: 'trace:gray,debug:blue,info:green,warn:yellow,error:red,fatal:bgRed',
+    });
+    streams.push({
+      level: LOG_LEVEL,
+      stream: prettyStream,
+    });
+  }
+
   return pino({
     level: LOG_LEVEL,
     formatters: {
@@ -167,7 +191,7 @@ function createSdCppLogger() {
       return { time: new Date().toISOString() };
     },
     base: { type: 'sdcpp' }
-  }, createFileDestination('sdcpp.log'));
+  }, pino.multistream(streams));
 }
 
 // Base logger instance

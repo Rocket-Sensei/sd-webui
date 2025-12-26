@@ -20,13 +20,15 @@ models:
       - "-v"
       - "--offload-to-cpu"
       - "--diffusion-fa"
+      - "--steps"
+      - "9"
     exec_mode: "server"
     model_type: "text-to-image"
     default_size: "1024x1024"
     # Model-specific default parameters for z-image-turbo
     # These are applied when this model is selected
     generation_params:
-      cfg_scale: 0.0  # Z-Image-Turbo doesn't rely on classifier-free guidance
+      cfg_scale: 1
       sample_steps: 9  # Ultra-fast distilled model, uses 4-9 steps
       sampling_method: "euler"
     huggingface:

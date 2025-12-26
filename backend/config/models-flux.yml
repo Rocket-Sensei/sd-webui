@@ -17,11 +17,14 @@ models:
       - "-v"
       - "--offload-to-cpu"
       - "--clip-on-cpu"
+      - "--steps"
+      - "4"
     mode: "on_demand"
     exec_mode: "server"
     port: 1409
     model_type: "text-to-image"
     default_size: "1024x1024"
+    startup_timeout: 120000
     generation_params:
       cfg_scale: 1.0
       sample_steps: 4
@@ -44,6 +47,8 @@ models:
       - "-v"
       - "--offload-to-cpu"
       - "--clip-on-cpu"
+      - "--steps"
+      - "24"
     mode: "on_demand"
     exec_mode: "server"
     port: 1234
@@ -70,6 +75,8 @@ models:
       - "-v"
       - "--offload-to-cpu"
       - "--clip-on-cpu"
+      - "--steps"
+      - "24"
     mode: "on_demand"
     exec_mode: "server"
     port: 1412
@@ -96,10 +103,13 @@ models:
       - "-v"
       - "--offload-to-cpu"
       - "--clip-on-cpu"
+      - "--steps"
+      - "24"
     mode: "on_demand"
     exec_mode: "server"
     port: 1235
     model_type: "text-to-image"
     default_size: "1024x1024"
+    startup_timeout: 240000
     generation_params:
       sample_steps: 24

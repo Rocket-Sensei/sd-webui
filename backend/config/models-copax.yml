@@ -18,6 +18,8 @@ models:
       - "-v"
       - "--offload-to-cpu"
       - "--diffusion-fa"
+      - "--steps"
+      - "14"
     mode: "on_demand"
     exec_mode: "server"
     port: 1406

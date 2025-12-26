@@ -1,12 +1,13 @@
 # Shuttle-3-Diffusion Models (Flux.1 Schnell compatible)
 # Shuttle-3-Diffusion is a Flux.1 Schnell based model requiring specific settings:
-#   - guidance_scale: 3.5
-#   - num_inference_steps: 4
-#   - max_sequence_length: 256
+#   - cfg_scale: 1.0 (guidance is handled internally by the model)
+#   - sample_steps: 4 (can produce Flux Pro quality images in just 4 steps)
+#   - sampling_method: euler
+# Reference: https://huggingface.co/shuttleai/shuttle-3-diffusion
 models:
   shuttle-3-diffusion:
     name: "Shuttle-3-Diffusion"
-    description: "Shuttle-3-Diffusion - Flux.1 Schnell compatible model"
+    description: "Shuttle-3-Diffusion - Apache 2.0 licensed aesthetic model (Flux Schnell based)"
     capabilities: ["text-to-image"]
     command: "./bin/sd-server"
     args:
@@ -19,13 +20,16 @@ models:
       - "--t5xxl"
       - "./models/t5xxl_fp16.safetensors"
       - "-v"
+      - "--offload-to-cpu"
       - "--clip-on-cpu"
+      - "--steps"
+      - "4"
     mode: "on_demand"
     exec_mode: "server"
     port: 1410
     model_type: "text-to-image"
     default_size: "1024x1024"
     generation_params:
-      cfg_scale: 3.5
-      sample_steps: 28
+      cfg_scale: 1.0
+      sample_steps: 4
       sampling_method: "euler"

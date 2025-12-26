@@ -8,10 +8,15 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync } from 'fs';
+import { existsSync, unlinkSync } from 'fs';
 import { startServer, stopServer } from './helpers/testServer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Test-specific database path - MUST be set before importing database modules
+const TEST_DB_PATH = path.join(__dirname, '..', 'backend', 'data', 'test-api-sd-webui.db');
+process.env.DB_PATH = TEST_DB_PATH;
+
 const API_URL = 'http://127.0.0.1:3000';
 
 // Create a minimal test PNG buffer
@@ -30,6 +35,18 @@ describe('API Endpoints (No Model Required)', () => {
 
   afterAll(async () => {
     await stopServer();
+
+    // Clean up test database files after all tests
+    for (const ext of ['', '-wal', '-shm']) {
+      const filePath = TEST_DB_PATH + ext;
+      if (existsSync(filePath)) {
+        try {
+          unlinkSync(filePath);
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+    }
   });
 
   describe('Health & Config', () => {
@@ -57,7 +74,9 @@ describe('API Endpoints (No Model Required)', () => {
       expect(response.ok).toBe(true);
 
       const data = await response.json();
-      expect(Array.isArray(data)).toBe(true);
+      expect(data).toHaveProperty('generations');
+      expect(Array.isArray(data.generations)).toBe(true);
+      expect(data).toHaveProperty('pagination');
     });
 
     it('GET /api/generations/:id should return 404 for non-existent', async () => {

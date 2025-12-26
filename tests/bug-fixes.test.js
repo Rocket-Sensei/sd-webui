@@ -149,7 +149,7 @@ describe('Bug Fix Tests', () => {
       const command = handler.buildCommand(modelConfig, params);
 
       // The command should have --steps 4 (not 20)
-      // Since buildCommand pushes --steps twice, the last one should win
+      // sample_steps takes precedence over quality, so there should be only one --steps
       const stepsIndices = [];
       command.forEach((arg, index) => {
         if (arg === '--steps') {
@@ -157,12 +157,12 @@ describe('Bug Fix Tests', () => {
         }
       });
 
-      // There should be two --steps arguments (one from quality, one from sample_steps)
-      expect(stepsIndices.length).toBe(2);
+      // There should be only ONE --steps argument (sample_steps overrides quality)
+      expect(stepsIndices.length).toBe(1);
 
-      // The second one should be 4 (from sample_steps)
-      const secondStepsValue = command[stepsIndices[1] + 1];
-      expect(secondStepsValue).toBe('4');
+      // The value should be 4 (from sample_steps, not 20 from quality)
+      const stepsValue = command[stepsIndices[0] + 1];
+      expect(stepsValue).toBe('4');
     });
 
     it('should use quality-based steps when sample_steps is not provided', async () => {

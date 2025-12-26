@@ -6,13 +6,17 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { randomUUID } from 'crypto';
 import { readFile, writeFile, unlink, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, unlinkSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { startServer, stopServer } from './helpers/testServer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Test-specific database path - MUST be set before importing database modules
+const TEST_DB_PATH = path.join(__dirname, '..', 'backend', 'data', 'test-edit-sd-webui.db');
+process.env.DB_PATH = TEST_DB_PATH;
 
 const TEST_IMAGE_DIR = path.join(__dirname, '../backend/data/input-test');
 const API_URL = 'http://127.0.0.1:3000';
@@ -34,6 +38,18 @@ describe('Edit/Variation Queue Endpoints', () => {
 
   afterAll(async () => {
     await stopServer();
+
+    // Clean up test database files after all tests
+    for (const ext of ['', '-wal', '-shm']) {
+      const filePath = TEST_DB_PATH + ext;
+      if (existsSync(filePath)) {
+        try {
+          unlinkSync(filePath);
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+    }
   });
 
   beforeEach(async () => {

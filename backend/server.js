@@ -6,7 +6,13 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { config } from 'dotenv';
 import http from 'http';
-import { initializeDatabase, getImagesDir, getInputImagesDir } from './db/database.js';
+
+// Load environment variables from .env file BEFORE importing database module
+const envResult = config({
+  path: path.join(dirname(fileURLToPath(import.meta.url)), '.env')
+});
+
+import { initializeDatabase, closeDatabase, getImagesDir, getInputImagesDir } from './db/database.js';
 import { runMigrations } from './db/migrations.js';
 import { randomUUID } from 'crypto';
 import { writeFile } from 'fs/promises';
@@ -42,11 +48,7 @@ import { logApiRequest, createLogger, getGenerationLogs } from './utils/logger.j
 // Create logger for server module
 const logger = createLogger('server');
 
-// Load environment variables from .env file
-const envResult = config({
-  path: path.join(dirname(fileURLToPath(import.meta.url)), '.env')
-});
-
+// Check for dotenv config error (already called above)
 if (envResult.error) {
   // .env file is optional, log but don't fail
   logger.info('Note: .env file not found, using environment variables');
@@ -208,7 +210,7 @@ app.get('/api/generations', async (req, res) => {
         total,
         limit: limit || total,
         offset: offset || 0,
-        hasMore: limit && offset ? (offset + limit) < total : false
+        hasMore: limit !== null && (offset + limit) < total
       }
     });
   } catch (error) {
@@ -231,7 +233,8 @@ app.get('/api/generations/:id', async (req, res) => {
   }
 });
 
-// Get image file by image ID (for thumbnails and specific images)
+// Get image file by image ID (serves original full-resolution image)
+// Supports optional ?size=thumbnail query param for future thumbnail support
 app.get('/api/images/:imageId', async (req, res) => {
   try {
     const image = getImageById(req.params.imageId);
@@ -241,7 +244,18 @@ app.get('/api/images/:imageId', async (req, res) => {
     res.set('Content-Type', image.mime_type);
     // Cache images for 1 hour
     res.set('Cache-Control', 'public, max-age=3600, immutable');
-    res.sendFile(image.file_path);
+    // Ensure the path is absolute before sending
+    const absolutePath = path.isAbsolute(image.file_path)
+      ? image.file_path
+      : path.resolve(__dirname, image.file_path);
+    res.sendFile(absolutePath, (err) => {
+      if (err) {
+        logger.error({ error: err, filePath: absolutePath }, 'Error sending image file');
+        if (!res.headersSent) {
+          res.status(404).json({ error: 'Image file not found on disk' });
+        }
+      }
+    });
   } catch (error) {
     logger.error({ error }, 'Error fetching image');
     res.status(500).json({ error: error.message });
@@ -259,7 +273,18 @@ app.get('/api/generations/:id/image', async (req, res) => {
     res.set('Content-Type', firstImage.mime_type);
     // Cache images for 1 hour
     res.set('Cache-Control', 'public, max-age=3600, immutable');
-    res.sendFile(firstImage.file_path);
+    // Ensure the path is absolute before sending
+    const absolutePath = path.isAbsolute(firstImage.file_path)
+      ? firstImage.file_path
+      : path.resolve(__dirname, firstImage.file_path);
+    res.sendFile(absolutePath, (err) => {
+      if (err) {
+        logger.error({ error: err, filePath: absolutePath }, 'Error sending image file');
+        if (!res.headersSent) {
+          res.status(404).json({ error: 'Image file not found on disk' });
+        }
+      }
+    });
   } catch (error) {
     logger.error({ error }, 'Error fetching image');
     res.status(500).json({ error: error.message });
@@ -297,6 +322,19 @@ app.get('/api/generations/:id/logs', authenticateRequest, async (req, res) => {
     res.json(logs);
   } catch (error) {
     logger.error({ error, generationId: req.params.id }, 'Error fetching generation logs');
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all logs (no generation filter)
+app.get('/api/logs', authenticateRequest, async (req, res) => {
+  try {
+    const limit = req.query.limit ? parseInt(req.query.limit) : 100;
+    // Pass undefined as generationId to get all logs
+    const logs = await getGenerationLogs(undefined, limit);
+    res.json(logs);
+  } catch (error) {
+    logger.error({ error }, 'Error fetching logs');
     res.status(500).json({ error: error.message });
   }
 });
@@ -1364,6 +1402,9 @@ app.post('/sdapi/v1/txt2img', authenticateRequest, async (req, res) => {
       });
     }
 
+    // Get model-specific default parameters
+    const modelParams = modelManager.getModelGenerationParams(modelId);
+
     // Create generation job
     const jobId = randomUUID();
     const job = {
@@ -1374,9 +1415,10 @@ app.post('/sdapi/v1/txt2img', authenticateRequest, async (req, res) => {
       negative_prompt: negative_prompt || '',
       width: width || 1024,
       height: height || 1024,
-      sample_steps: steps || 20,
-      cfg_scale: cfg_scale || 7.0,
-      sampling_method: sampler_name || 'euler',
+      // Use provided steps, fallback to model default, then undefined (queueProcessor will handle)
+      sample_steps: steps !== undefined ? steps : (modelParams?.sample_steps ?? undefined),
+      cfg_scale: cfg_scale !== undefined ? cfg_scale : (modelParams?.cfg_scale ?? undefined),
+      sampling_method: sampler_name || modelParams?.sampling_method || 'euler',
       seed: seed || -1,
       n: n,
       status: 'pending',
@@ -1588,6 +1630,12 @@ app.post('/sdapi/v1/extra-batch-images', authenticateRequest, async (req, res) =
   }
 });
 
+// 404 handler for static routes that didn't match
+// Must come before the catch-all route
+app.use('/static/*', (req, res) => {
+  res.status(404).json({ error: 'File not found' });
+});
+
 // Serve frontend for all other routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
@@ -1598,6 +1646,35 @@ const server = http.createServer(app);
 
 // Initialize WebSocket server
 const wsServer = initializeWebSocket(server);
+
+// Graceful shutdown handler
+function gracefulShutdown(signal) {
+  logger.info({ signal }, `Received ${signal}, closing server gracefully...`);
+
+  server.close(() => {
+    logger.info('HTTP server closed');
+
+    // Close database connection
+    try {
+      closeDatabase();
+      logger.info('Database connection closed');
+    } catch (error) {
+      logger.error({ error }, 'Error closing database');
+    }
+
+    process.exit(0);
+  });
+
+  // Force close after 10 seconds
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+}
+
+// Register shutdown handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 server.listen(PORT, HOST, async () => {
   logger.info(`Server running on http://${HOST}:${PORT}`);

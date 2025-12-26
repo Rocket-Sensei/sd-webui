@@ -571,7 +571,8 @@ export class ModelManager {
 
       // Wait for server mode to be ready (with timeout)
       if (model.exec_mode === ExecMode.SERVER) {
-        await this._waitForServerReady(processEntry, options.timeout || 30000);
+        const timeout = options.timeout || model.startup_timeout || 90000;
+        await this._waitForServerReady(processEntry, timeout);
       }
 
       return processEntry;

@@ -793,4 +793,124 @@ describe('Logger Utility', () => {
       expect(fileContent).toContain('test no stdout 0 message');
     });
   });
+
+  describe('SD.cpp Logger LOG_TO_STDOUT Behavior', () => {
+    it('should log SD.cpp logs to stdout when LOG_TO_STDOUT is true (default)', async () => {
+      process.env.LOG_TO_STDOUT = 'true';
+      vi.resetModules();
+
+      // Mock console.log to capture stdout output
+      const stdoutWrite = process.stdout.write;
+      const writtenData = [];
+      process.stdout.write = vi.fn((data) => {
+        writtenData.push(data.toString());
+        return true;
+      });
+
+      const { getSdCppLogger } = await import('../backend/utils/logger.js');
+      const sdcppLogger = getSdCppLogger();
+
+      sdcppLogger.info('SD.cpp test stdout message');
+
+      await flushAllLoggers();
+
+      // Restore stdout
+      process.stdout.write = stdoutWrite;
+
+      // Verify SD.cpp log was written to stdout with [SD.cpp] prefix
+      const stdoutContent = writtenData.join('');
+      expect(stdoutContent).toBeTruthy();
+      expect(stdoutContent).toContain('[SD.cpp]');
+      expect(stdoutContent).toContain('SD.cpp test stdout message');
+    });
+
+    it('should log SD.cpp logs to stdout with generation_id when provided', async () => {
+      process.env.LOG_TO_STDOUT = 'true';
+      vi.resetModules();
+
+      const stdoutWrite = process.stdout.write;
+      const writtenData = [];
+      process.stdout.write = vi.fn((data) => {
+        writtenData.push(data.toString());
+        return true;
+      });
+
+      const { getSdCppLogger, logCliCommand } = await import('../backend/utils/logger.js');
+      const testGenId = 'test-sdcpp-stdout-123';
+
+      // Test with getSdCppLogger
+      const genLogger = getSdCppLogger(testGenId);
+      genLogger.info('Generation log message');
+
+      // Test with logCliCommand
+      logCliCommand('./bin/sd-cli', ['--model', 'test.gguf'], {}, testGenId);
+
+      await flushAllLoggers();
+
+      process.stdout.write = stdoutWrite;
+
+      const stdoutContent = writtenData.join('');
+      expect(stdoutContent).toBeTruthy();
+      // Should contain [SD.cpp] prefix
+      expect(stdoutContent).toContain('[SD.cpp]');
+      // Should contain [gen:test-sdcpp-stdout-123] when generation_id is present
+      expect(stdoutContent).toContain('[gen:test-sdcpp-stdout-123]');
+      expect(stdoutContent).toContain('Generation log message');
+    });
+
+    it('should NOT log SD.cpp logs to stdout when LOG_TO_STDOUT is false', async () => {
+      process.env.LOG_TO_STDOUT = 'false';
+      vi.resetModules();
+
+      const stdoutWrite = process.stdout.write;
+      const writtenData = [];
+      process.stdout.write = vi.fn((data) => {
+        writtenData.push(data.toString());
+        return true;
+      });
+
+      const { getSdCppLogger } = await import('../backend/utils/logger.js');
+      const sdcppLogger = getSdCppLogger();
+
+      sdcppLogger.info('SD.cpp no stdout message');
+
+      await flushAllLoggers();
+
+      process.stdout.write = stdoutWrite;
+
+      // Verify file still has the log
+      const fileContent = readLogFile(sdcppLogPath);
+      expect(fileContent).toContain('SD.cpp no stdout message');
+    });
+
+    it('should include SD.cpp logs in both file and stdout when enabled', async () => {
+      process.env.LOG_TO_STDOUT = 'true';
+      vi.resetModules();
+
+      const stdoutWrite = process.stdout.write;
+      const writtenData = [];
+      process.stdout.write = vi.fn((data) => {
+        writtenData.push(data.toString());
+        return true;
+      });
+
+      const { logCliCommand, logCliOutput } = await import('../backend/utils/logger.js');
+
+      logCliCommand('./bin/sd-cli', ['--model', 'flux.gguf'], { cwd: '/models' });
+      logCliOutput('Generated image successfully', null, 0);
+
+      await flushAllLoggers();
+
+      process.stdout.write = stdoutWrite;
+
+      // Verify stdout output
+      const stdoutContent = writtenData.join('');
+      expect(stdoutContent).toContain('[SD.cpp]');
+
+      // Verify file output also exists
+      const fileContent = readLogFile(sdcppLogPath);
+      expect(fileContent).toContain('./bin/sd-cli');
+      expect(fileContent).toContain('Generated image successfully');
+    });
+  });
 });

@@ -620,17 +620,17 @@ export function UnifiedQueue({ onCreateMore }) {
       <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) setShowLogs(false); }}>
         <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle className="truncate pr-4">{selectedImage?.prompt}</DialogTitle>
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
-                size="sm"
+                size="icon"
                 onClick={() => setShowLogs(!showLogs)}
                 className={showLogs ? "bg-blue-50 border-blue-200" : ""}
+                title={showLogs ? "Hide Logs" : "View Logs"}
               >
-                <Terminal className="h-4 w-4 mr-2" />
-                {showLogs ? "Hide Logs" : "View Logs"}
+                <Terminal className="h-4 w-4" />
               </Button>
+              <DialogTitle className="truncate">{selectedImage?.prompt}</DialogTitle>
             </div>
             <DialogDescription>
               {getModelName(selectedImage?.model)} • {selectedImage?.size} • {selectedImage?.width}x{selectedImage?.height} • Seed: {selectedImage?.seed ? Math.floor(Number(selectedImage.seed)) : "Random"}
@@ -686,17 +686,7 @@ export function UnifiedQueue({ onCreateMore }) {
       <Dialog open={isFailedLogsOpen} onOpenChange={(open) => { setIsFailedLogsOpen(open); if (!open) setFailedLogsGeneration(null); }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle>Generation Logs - {failedLogsGeneration?.status === GENERATION_STATUS.FAILED ? "Failed" : "Cancelled"}</DialogTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsFailedLogsOpen(false)}
-              >
-                <X className="h-4 w-4 mr-2" />
-                Close
-              </Button>
-            </div>
+            <DialogTitle>Generation Logs - {failedLogsGeneration?.status === GENERATION_STATUS.FAILED ? "Failed" : "Cancelled"}</DialogTitle>
             <DialogDescription>
               {failedLogsGeneration?.prompt || "No prompt"}
             </DialogDescription>

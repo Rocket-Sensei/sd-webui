@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { existsSync } from 'fs';
+import { existsSync, unlinkSync } from 'fs';
 import { readFile } from 'fs/promises';
 import path from 'path';
 import Database from 'better-sqlite3';
@@ -15,7 +15,11 @@ import { startServer, stopServer } from './helpers/testServer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.join(__dirname, '../..');
-const DB_PATH = path.join(PROJECT_ROOT, 'backend/data/sd-webui.db');
+
+// Test-specific database path - MUST be set before importing database modules
+const TEST_DB_PATH = path.join(PROJECT_ROOT, 'backend/data/test-fullworkflow-sd-webui.db');
+process.env.DB_PATH = TEST_DB_PATH;
+
 const IMAGES_DIR = path.join(PROJECT_ROOT, 'backend/data/images');
 
 const API_URL = 'http://127.0.0.1:3000';
@@ -136,7 +140,7 @@ async function pollJobCompletion(jobId, timeout = 300000) {
 }
 
 function verifyGenerationInDatabase(generationId) {
-  const db = new Database(DB_PATH, { readonly: true });
+  const db = new Database(TEST_DB_PATH, { readonly: true });
 
   const generation = db.prepare('SELECT * FROM generations WHERE id = ?').get(generationId);
   expect(generation).toBeTruthy();
@@ -160,6 +164,18 @@ describe.skip('Full Workflow Integration Tests', () => {
 
   afterAll(async () => {
     await stopServer();
+
+    // Clean up test database files after all tests
+    for (const ext of ['', '-wal', '-shm']) {
+      const filePath = TEST_DB_PATH + ext;
+      if (existsSync(filePath)) {
+        try {
+          unlinkSync(filePath);
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+    }
   });
 
   describe('Backend Health', () => {
