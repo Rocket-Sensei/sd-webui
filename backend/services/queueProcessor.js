@@ -11,10 +11,70 @@ const logger = createLogger('queueProcessor');
 
 let isProcessing = false;
 let currentJob = null;
+let currentModelId = null; // Track the model being used for the current job
 let pollInterval = null;
 
 // Initialize model manager singleton
 const modelManager = getModelManager();
+
+/**
+ * Handle model process exit/crash during generation
+ * Fails the current job if the model crashes while processing
+ */
+function handleModelProcessExit(modelId, code, signal) {
+  logger.warn({ modelId, code, signal }, 'Model process exited');
+
+  // Check if we're currently processing a job with this model
+  if (!isProcessing || !currentJob || !currentModelId || currentModelId !== modelId) {
+    return;
+  }
+
+  // The model crashed during generation - fail the job
+  const errorMsg = signal
+    ? `Model process crashed (${signal})`
+    : `Model process exited unexpectedly (code: ${code || 'unknown'})`;
+
+  logger.error({ jobId: currentJob.id, modelId, error: errorMsg }, 'Failing generation due to model crash');
+
+  // Update job status to failed
+  updateGenerationStatus(currentJob.id, GenerationStatus.FAILED, { error: errorMsg });
+  broadcastQueueEvent({ ...currentJob, status: GenerationStatus.FAILED, error: errorMsg }, 'job_failed');
+
+  // Reset processing state so queue can continue
+  isProcessing = false;
+  currentJob = null;
+  currentModelId = null;
+}
+
+/**
+ * Handle model process error
+ */
+function handleModelProcessError(modelId, error) {
+  logger.error({ modelId, error: error.message }, 'Model process error');
+
+  // Check if we're currently processing a job with this model
+  if (!isProcessing || !currentJob || !currentModelId || currentModelId !== modelId) {
+    return;
+  }
+
+  // The model had an error during generation - fail the job
+  const errorMsg = `Model process error: ${error.message}`;
+
+  logger.error({ jobId: currentJob.id, modelId, error: errorMsg }, 'Failing generation due to model error');
+
+  // Update job status to failed
+  updateGenerationStatus(currentJob.id, GenerationStatus.FAILED, { error: errorMsg });
+  broadcastQueueEvent({ ...currentJob, status: GenerationStatus.FAILED, error: errorMsg }, 'job_failed');
+
+  // Reset processing state so queue can continue
+  isProcessing = false;
+  currentJob = null;
+  currentModelId = null;
+}
+
+// Register callbacks with model manager
+modelManager.onProcessExit = handleModelProcessExit;
+modelManager.onProcessError = handleModelProcessError;
 
 /**
  * Start the queue processor
@@ -76,6 +136,7 @@ async function processQueue() {
 
   isProcessing = true;
   currentJob = job;
+  currentModelId = null; // Will be set when model is determined
   const startTime = Date.now();
 
   // Create generation-specific logger for this job
@@ -104,6 +165,9 @@ async function processQueue() {
     if (!modelConfig) {
       throw new Error(`Model not found: ${modelId}`);
     }
+
+    // Track the current model ID for crash detection
+    currentModelId = modelId;
 
     logger.info({ modelId, modelName: modelConfig.name, execMode: modelConfig.exec_mode }, 'Using model');
     genLogger.info({ modelId, modelName: modelConfig.name, execMode: modelConfig.exec_mode }, 'Using model');
@@ -198,6 +262,7 @@ async function processQueue() {
   } finally {
     isProcessing = false;
     currentJob = null;
+    currentModelId = null;
   }
 }
 
