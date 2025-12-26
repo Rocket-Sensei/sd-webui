@@ -104,6 +104,7 @@ export function GeneratePanel({ selectedModels = [], onModelsChange, settings, e
   const size = useMemo(() => `${width}x${height}`, [width, height]);
 
   const [seed, setSeed] = useState("");
+  const [n, setN] = useState(1); // Number of images to generate per model
   const [useQueue, setUseQueue] = useState(true);
 
   // Store full models data
@@ -330,12 +331,15 @@ export function GeneratePanel({ selectedModels = [], onModelsChange, settings, e
         return;
       }
 
+      // Determine seed value: use provided seed when n=1, otherwise undefined
+      const seedValue = n === 1 ? (seed || undefined) : undefined;
+
       const baseParams = {
         mode: getApiMode(mode),
         prompt,
         negative_prompt: negativePrompt,
         size: `${width}x${height}`,
-        seed: seed || undefined,
+        seed: seedValue,
         cfg_scale: cfgScale,
         sampling_method: samplingMethod,
         sample_steps: sampleSteps,
@@ -352,13 +356,30 @@ export function GeneratePanel({ selectedModels = [], onModelsChange, settings, e
         baseParams.strength = strength;
       }
 
-      // Queue for each selected model
-      const promises = selectedModels.map(modelId => {
-        return generateQueued({ ...baseParams, model: modelId });
-      });
+      // Create n generations for each selected model
+      const promises = [];
+      for (const modelId of selectedModels) {
+        if (n === 1) {
+          // Single generation: use current behavior (respect seed or use random)
+          promises.push(generateQueued({ ...baseParams, model: modelId }));
+        } else {
+          // Multiple generations: create separate jobs with unique random seeds
+          for (let i = 0; i < n; i++) {
+            const randomSeed = Math.floor(Math.random() * 4294967295);
+            promises.push(
+              generateQueued({
+                ...baseParams,
+                model: modelId,
+                seed: randomSeed,
+              })
+            );
+          }
+        }
+      }
 
       await Promise.all(promises);
-      toast.success(`${selectedModels.length} job(s) added to queue!`);
+      const totalJobs = selectedModels.length * n;
+      toast.success(`${totalJobs} job(s) added to queue!`);
 
       if (onGenerated) {
         onGenerated();
@@ -910,8 +931,32 @@ export function GeneratePanel({ selectedModels = [], onModelsChange, settings, e
                 placeholder="Leave empty for random"
                 value={seed}
                 onChange={(e) => setSeed(e.target.value)}
-                disabled={isLoading || isUpscaling}
+                disabled={n > 1 || isLoading || isUpscaling}
               />
+              {n > 1 && (
+                <p className="text-xs text-muted-foreground">
+                  Seed is disabled when generating multiple images (random seeds will be used)
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="num-images">Number of Images: {n}</Label>
+              </div>
+              <Slider
+                id="num-images"
+                min={1}
+                max={10}
+                step={1}
+                value={[n]}
+                onValueChange={(v) => setN(v[0])}
+                disabled={isLoading || isUpscaling}
+                className="w-full"
+              />
+              <p className="text-xs text-muted-foreground">
+                Generate multiple images with different random seeds
+              </p>
             </div>
           </div>
         </CardContent>
