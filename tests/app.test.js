@@ -8,20 +8,8 @@ import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
 
 // Mock the child components with factory functions
-vi.mock('../frontend/src/components/Navigation', () => ({
-  Navigation: () => React.createElement('nav', { 'data-testid': 'navigation' }, 'Navigation'),
-}));
-
-vi.mock('../frontend/src/components/Generate', () => ({
-  Generate: () => React.createElement('div', { 'data-testid': 'generate' }, 'Generate'),
-}));
-
-vi.mock('../frontend/src/components/UnifiedQueue', () => ({
-  UnifiedQueue: () => React.createElement('div', { 'data-testid': 'gallery' }, 'UnifiedQueue'),
-}));
-
-vi.mock('../frontend/src/components/ModelManager', () => ({
-  ModelManager: () => React.createElement('div', { 'data-testid': 'models' }, 'ModelManager'),
+vi.mock('../frontend/src/components/Studio', () => ({
+  Studio: () => React.createElement('div', { 'data-testid': 'studio' }, 'Studio'),
 }));
 
 vi.mock('../frontend/src/components/ui/sonner', () => ({
@@ -58,49 +46,39 @@ describe('App Component', () => {
     vi.clearAllMocks();
   });
 
-  it('should render Navigation component', () => {
-    renderWithRouter(React.createElement(App));
-    expect(screen.getByTestId('navigation')).toBeTruthy();
-  });
-
   it('should render Toaster component', () => {
     renderWithRouter(React.createElement(App));
     expect(screen.getByTestId('toaster')).toBeTruthy();
   });
 
-  it('should render Generate component at / route (redirected)', () => {
+  it('should render Studio component at / route (redirected to /studio)', () => {
     renderWithRouter(React.createElement(App));
-    expect(screen.getByTestId('generate')).toBeTruthy();
+    expect(screen.getByTestId('studio')).toBeTruthy();
   });
 
-  it('should render Generate component at /generate route', () => {
+  it('should render Studio component at /studio route', () => {
+    renderWithRouter(React.createElement(App), { initialEntries: ['/studio'] });
+    expect(screen.getByTestId('studio')).toBeTruthy();
+  });
+
+  it('should redirect /generate to /studio', () => {
     renderWithRouter(React.createElement(App), { initialEntries: ['/generate'] });
-    expect(screen.getByTestId('generate')).toBeTruthy();
+    expect(screen.getByTestId('studio')).toBeTruthy();
   });
 
-  it('should render UnifiedQueue component at /gallery route', () => {
+  it('should redirect /gallery to /studio', () => {
     renderWithRouter(React.createElement(App), { initialEntries: ['/gallery'] });
-    expect(screen.getByTestId('gallery')).toBeTruthy();
+    expect(screen.getByTestId('studio')).toBeTruthy();
   });
 
-  it('should render ModelManager component at /models route', () => {
+  it('should redirect /models to /studio', () => {
     renderWithRouter(React.createElement(App), { initialEntries: ['/models'] });
-    expect(screen.getByTestId('models')).toBeTruthy();
+    expect(screen.getByTestId('studio')).toBeTruthy();
   });
 
-  it('should redirect root / to /generate', () => {
+  it('should redirect root / to /studio', () => {
     renderWithRouter(React.createElement(App), { initialEntries: ['/'] });
-    expect(screen.getByTestId('generate')).toBeTruthy();
-  });
-
-  it('should pass onGenerated prop to Generate', () => {
-    const { container } = renderWithRouter(React.createElement(App), { initialEntries: ['/generate'] });
-    expect(screen.getByTestId('generate')).toBeTruthy();
-  });
-
-  it('should pass onCreateMore prop to UnifiedQueue', () => {
-    const { container } = renderWithRouter(React.createElement(App), { initialEntries: ['/gallery'] });
-    expect(screen.getByTestId('gallery')).toBeTruthy();
+    expect(screen.getByTestId('studio')).toBeTruthy();
   });
 
   it('should render WebSocketStatusIndicator', () => {

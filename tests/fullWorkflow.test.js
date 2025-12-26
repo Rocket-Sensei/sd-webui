@@ -20,7 +20,11 @@ const PROJECT_ROOT = path.join(__dirname, '../..');
 const TEST_DB_PATH = path.join(PROJECT_ROOT, 'backend/data/test-fullworkflow-sd-webui.db');
 process.env.DB_PATH = TEST_DB_PATH;
 
-const IMAGES_DIR = path.join(PROJECT_ROOT, 'backend/data/images');
+// Test-specific images directories - MUST be set before importing backend modules
+const TEST_IMAGES_DIR = path.join(PROJECT_ROOT, 'backend/data/test-fullworkflow-images');
+const TEST_INPUT_DIR = path.join(PROJECT_ROOT, 'backend/data/test-fullworkflow-input');
+process.env.IMAGES_DIR = TEST_IMAGES_DIR;
+process.env.INPUT_DIR = TEST_INPUT_DIR;
 
 const API_URL = 'http://127.0.0.1:3000';
 

@@ -107,15 +107,13 @@ app.use((req, res, next) => {
 // Serve static files from frontend build
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
-// Serve static images from backend/data/images
+// Serve static images from images directory (respects IMAGES_DIR env var for tests)
 // These are generated images that can be served directly without going through the API
-const imagesDir = path.join(__dirname, 'data', 'images');
-app.use('/static/images', express.static(imagesDir));
+app.use('/static/images', express.static(getImagesDir()));
 
-// Serve static input images from backend/data/input
+// Serve static input images from input directory (respects INPUT_DIR env var for tests)
 // These are uploaded/input images used for img2img
-const inputDir = path.join(__dirname, 'data', 'input');
-app.use('/static/input', express.static(inputDir));
+app.use('/static/input', express.static(getInputImagesDir()));
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -455,6 +453,9 @@ app.post('/api/queue/variation', authenticateRequest, upload.single('image'), as
       status: GenerationStatus.PENDING,
       input_image_path: imagePath,
       input_image_mime_type: 'image/png',
+      // Strength parameter for img2img (variation) - controls how much the original image is preserved
+      // Default: 0.75 (balanced variation)
+      strength: parseFloat(req.body.strength) || 0.75,
       // SD.cpp Advanced Settings
       cfg_scale: req.body.cfg_scale,
       sampling_method: req.body.sampling_method,

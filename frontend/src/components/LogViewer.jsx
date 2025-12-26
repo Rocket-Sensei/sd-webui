@@ -43,7 +43,17 @@ export function LogViewer({ generationId, onClose }) {
       if (!response.ok) throw new Error("Failed to fetch logs");
 
       const data = await response.json();
-      setLogs(data.all || []);
+      // Merge all log types (app, http, sdcpp) into a single array and sort by timestamp
+      const allLogs = [
+        ...(data.app || []),
+        ...(data.http || []),
+        ...(data.sdcpp || []),
+      ].sort((a, b) => {
+        const timeA = a.time || '';
+        const timeB = b.time || '';
+        return timeA.localeCompare(timeB);
+      });
+      setLogs(allLogs);
     } catch (err) {
       console.error("Failed to fetch logs:", err);
     } finally {

@@ -693,6 +693,9 @@ async function processEditJob(job, modelConfig, genLogger) {
     // Full implementation would need CLI-specific edit handling
     logger.warn('Edit mode with CLI not fully supported, using generate');
     genLogger.warn('Edit mode with CLI not fully supported, using generate');
+    // Add type and input_image_path for CLI mode
+    params.type = 'edit';
+    params.input_image_path = job.input_image_path;
     response = await processCLIGeneration(job, modelConfig, params, genLogger);
   } else if (modelConfig.exec_mode === ExecMode.SERVER || modelConfig.exec_mode === ExecMode.API) {
     // Use generateImageDirect for edit mode with FormData
@@ -772,6 +775,9 @@ async function processVariationJob(job, modelConfig, genLogger) {
       buffer: imageBuffer,
       mimetype: job.input_image_mime_type || 'image/png'
     },
+    // Strength parameter for img2img (variation) - controls how much the original image is preserved
+    // Default: 0.75 (balanced variation)
+    strength: job.strength !== undefined ? job.strength : 0.75,
     // SD.cpp Advanced Settings - use job values, fallback to model defaults, then undefined
     cfg_scale: job.cfg_scale ?? modelParams?.cfg_scale ?? undefined,
     sampling_method: job.sampling_method ?? modelParams?.sampling_method ?? undefined,
@@ -780,7 +786,7 @@ async function processVariationJob(job, modelConfig, genLogger) {
   };
 
   updateGenerationProgress(job.id, 0.25, 'Generating variation...');
-  genLogger.info('Starting image variation');
+  genLogger.info({ strength: params.strength }, 'Starting image variation');
 
   let response;
   // Use job.id as generation_id since queue is now merged into generations
@@ -793,12 +799,15 @@ async function processVariationJob(job, modelConfig, genLogger) {
     // Full implementation would need CLI-specific variation handling
     logger.warn('Variation mode with CLI not fully supported, using generate');
     genLogger.warn('Variation mode with CLI not fully supported, using generate');
+    // Add type and input_image_path for CLI mode
+    params.type = 'variation';
+    params.input_image_path = job.input_image_path;
     response = await processCLIGeneration(job, modelConfig, params, genLogger);
   } else if (modelConfig.exec_mode === ExecMode.SERVER || modelConfig.exec_mode === ExecMode.API) {
     // Use generateImageDirect for variation mode with FormData
     const apiType = modelConfig.exec_mode === ExecMode.API ? 'external' : 'local';
-    logger.info({ apiType, api: modelConfig.api }, 'Using HTTP API for variation');
-    genLogger.info({ apiType, api: modelConfig.api }, 'Using HTTP API for variation');
+    logger.info({ apiType, api: modelConfig.api, strength: params.strength }, 'Using HTTP API for variation');
+    genLogger.info({ apiType, api: modelConfig.api, strength: params.strength }, 'Using HTTP API for variation');
     response = await generateImageDirect(params, 'variation');
   } else {
     throw new Error(`Unknown execution mode: ${modelConfig.exec_mode}`);

@@ -20,7 +20,13 @@ const __dirname = path.dirname(__filename);
 const TEST_DB_PATH = path.join(__dirname, '..', 'backend', 'data', 'test-sd-webui.db');
 process.env.DB_PATH = TEST_DB_PATH;
 
-// Import backend modules AFTER setting DB_PATH
+// Test-specific images directories - MUST be set before importing database modules
+const TEST_IMAGES_DIR = path.join(__dirname, '..', 'backend', 'data', 'test-images');
+const TEST_INPUT_DIR = path.join(__dirname, '..', 'backend', 'data', 'test-input');
+process.env.IMAGES_DIR = TEST_IMAGES_DIR;
+process.env.INPUT_DIR = TEST_INPUT_DIR;
+
+// Import backend modules AFTER setting DB_PATH and directory paths
 import { initializeDatabase, getImagesDir, getInputImagesDir, closeDatabase, clearDatabase } from '../backend/db/database.js';
 import { createGeneration, createGeneratedImage, getAllGenerations, getGenerationsCount, getImageById } from '../backend/db/queries.js';
 
@@ -45,9 +51,9 @@ describe('Image Serving and Pagination', () => {
     // Close database connection in this module
     closeDatabase();
 
-    // Clean up test image files
-    const imagesDir = path.join(__dirname, '..', 'backend', 'data', 'images');
-    const inputDir = path.join(__dirname, '..', 'backend', 'data', 'input');
+    // Clean up test image files from test directories
+    const imagesDir = process.env.IMAGES_DIR || path.join(__dirname, '..', 'backend', 'data', 'images');
+    const inputDir = process.env.INPUT_DIR || path.join(__dirname, '..', 'backend', 'data', 'input');
     cleanupDir(imagesDir);
     cleanupDir(inputDir);
   });

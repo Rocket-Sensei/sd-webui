@@ -9,6 +9,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TEST_DB_PATH = path.join(__dirname, 'backend', 'data', 'test-sd-webui.db');
 process.env.DB_PATH = TEST_DB_PATH;
 
+// Set test images directories BEFORE importing any backend modules
+// This prevents tests from using production image directories
+const TEST_IMAGES_DIR = path.join(__dirname, 'backend', 'data', 'test-images');
+const TEST_INPUT_DIR = path.join(__dirname, 'backend', 'data', 'test-input');
+process.env.IMAGES_DIR = TEST_IMAGES_DIR;
+process.env.INPUT_DIR = TEST_INPUT_DIR;
+
 // Extend Vitest's expect with jest-dom matchers
 expect.extend(matchers);
 

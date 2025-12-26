@@ -18,7 +18,11 @@ const __dirname = path.dirname(__filename);
 const TEST_DB_PATH = path.join(__dirname, '..', 'backend', 'data', 'test-edit-sd-webui.db');
 process.env.DB_PATH = TEST_DB_PATH;
 
-const TEST_IMAGE_DIR = path.join(__dirname, '../backend/data/input-test');
+// Test-specific images directories - MUST be set before importing database modules
+const TEST_IMAGES_DIR = path.join(__dirname, '..', 'backend', 'data', 'test-edit-images');
+const TEST_INPUT_DIR = path.join(__dirname, '..', 'backend', 'data', 'test-edit-input');
+process.env.IMAGES_DIR = TEST_IMAGES_DIR;
+process.env.INPUT_DIR = TEST_INPUT_DIR;
 const API_URL = 'http://127.0.0.1:3000';
 
 // Mock test data
@@ -53,9 +57,12 @@ describe('Edit/Variation Queue Endpoints', () => {
   });
 
   beforeEach(async () => {
-    // Create test directory
-    if (!existsSync(TEST_IMAGE_DIR)) {
-      await mkdir(TEST_IMAGE_DIR, { recursive: true });
+    // Create test directories
+    if (!existsSync(TEST_IMAGES_DIR)) {
+      await mkdir(TEST_IMAGES_DIR, { recursive: true });
+    }
+    if (!existsSync(TEST_INPUT_DIR)) {
+      await mkdir(TEST_INPUT_DIR, { recursive: true });
     }
   });
 
@@ -63,10 +70,10 @@ describe('Edit/Variation Queue Endpoints', () => {
     // Cleanup test files
     try {
       const testFiles = await import('fs/promises').then(fs =>
-        fs.readdir(TEST_IMAGE_DIR).catch(() => [])
+        fs.readdir(TEST_INPUT_DIR).catch(() => [])
       );
       for (const file of testFiles) {
-        await unlink(path.join(TEST_IMAGE_DIR, file));
+        await unlink(path.join(TEST_INPUT_DIR, file));
       }
     } catch (e) {
       // Ignore cleanup errors

@@ -19,16 +19,23 @@ function getImagesDirPath() {
   return process.env.IMAGES_DIR || `${__dirname}/../data/images`;
 }
 
+// Helper function to get input images dir (reads env var dynamically)
+function getInputImagesDirPath() {
+  return process.env.INPUT_DIR || `${__dirname}/../data/input`;
+}
+
 let db;
 let dbPath = getDbPath();
 let dbDir = dirname(dbPath);
 let imagesDir = getImagesDirPath();
+let inputImagesDir = getInputImagesDirPath();
 
 // Update dbPath and directories when env changes (for test support)
 function refreshDbPath() {
   dbPath = getDbPath();
   dbDir = dirname(dbPath);
   imagesDir = getImagesDirPath();
+  inputImagesDir = getInputImagesDirPath();
 }
 
 export function initializeDatabase() {
@@ -42,6 +49,11 @@ export function initializeDatabase() {
   // Ensure images directory exists
   if (!existsSync(imagesDir)) {
     mkdirSync(imagesDir, { recursive: true });
+  }
+
+  // Ensure input images directory exists
+  if (!existsSync(inputImagesDir)) {
+    mkdirSync(inputImagesDir, { recursive: true });
   }
 
   db = new Database(dbPath);
@@ -73,7 +85,8 @@ export function initializeDatabase() {
       input_image_path TEXT,
       input_image_mime_type TEXT,
       mask_image_path TEXT,
-      mask_image_mime_type TEXT
+      mask_image_mime_type TEXT,
+      strength REAL DEFAULT 0.75
     )
   `);
 
@@ -91,12 +104,6 @@ export function initializeDatabase() {
       FOREIGN KEY (generation_id) REFERENCES generations(id) ON DELETE CASCADE
     )
   `);
-
-  // Create input images directory for edit/variation uploads
-  const inputImagesDir = `${__dirname}/../data/input`;
-  if (!existsSync(inputImagesDir)) {
-    mkdirSync(inputImagesDir, { recursive: true });
-  }
 
   // Create queue table for async job processing
   db.exec(`
@@ -124,6 +131,7 @@ export function initializeDatabase() {
       updated_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
       started_at INTEGER,
       completed_at INTEGER,
+      strength REAL DEFAULT 0.75,
       FOREIGN KEY (generation_id) REFERENCES generations(id) ON DELETE SET NULL
     )
   `);
@@ -233,11 +241,10 @@ export function getImagesDir() {
 }
 
 export function getInputImagesDir() {
-  const inputDir = `${__dirname}/../data/input`;
-  if (!existsSync(inputDir)) {
-    mkdirSync(inputDir, { recursive: true });
+  if (!existsSync(inputImagesDir)) {
+    mkdirSync(inputImagesDir, { recursive: true });
   }
-  return inputDir;
+  return inputImagesDir;
 }
 
 export function closeDatabase() {

@@ -527,12 +527,6 @@ export async function getGenerationLogs(generationId, limit = 50) {
     app: appLogs,
     sdcpp: sdcppLogs,
     http: httpLogs,
-    all: [...appLogs, ...sdcppLogs, ...httpLogs].sort((a, b) => {
-      // Sort by time if available, otherwise by levelNum
-      const timeA = a.time || 0;
-      const timeB = b.time || 0;
-      return timeA.localeCompare(timeB);
-    })
   };
 }
 

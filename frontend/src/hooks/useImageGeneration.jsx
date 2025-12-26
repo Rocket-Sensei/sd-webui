@@ -35,6 +35,10 @@ export function useImageGeneration() {
         if (params.quality) formData.append('quality', params.quality);
         if (params.style) formData.append('style', params.style);
         if (params.seed) formData.append('seed', params.seed);
+        // Add strength parameter for variation mode (img2img)
+        if (params.mode === 'variation' && params.strength !== undefined) {
+          formData.append('strength', String(params.strength));
+        }
 
         body = formData;
       } else {
@@ -93,6 +97,10 @@ export function useImageGeneration() {
         if (params.quality) formData.append('quality', params.quality);
         if (params.style) formData.append('style', params.style);
         if (params.seed) formData.append('seed', params.seed);
+        // Add strength parameter for variation mode (img2img)
+        if (params.mode === 'variation' && params.strength !== undefined) {
+          formData.append('strength', String(params.strength));
+        }
 
         body = formData;
         // Don't set Content-Type, let browser set it with boundary

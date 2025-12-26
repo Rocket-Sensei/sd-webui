@@ -119,6 +119,9 @@ class CLIHandler {
    * @param {number} [params.n=1] - Number of images to generate
    * @param {string} [params.quality='medium'] - Quality level
    * @param {string} [params.style] - Style preset
+   * @param {string} [params.type] - Generation type ('generate', 'edit', 'variation')
+   * @param {string} [params.input_image_path] - Path to input image for img2img
+   * @param {number} [params.strength=0.75] - Strength for img2img (variation)
    * @param {Object} modelConfig - Model configuration from models.yml
    * @param {string} [generationId] - Optional generation ID for logging
    * @returns {Promise<Buffer>} Generated image as a Buffer
@@ -187,9 +190,23 @@ class CLIHandler {
     const quality = params.quality; // Don't default to 'medium' - let sample_steps or model default take precedence
     const style = params.style;
     const n = params.n || 1;
+    const type = params.type || 'generate'; // 'generate', 'edit', 'variation'
 
     // Parse dimensions
     const { width, height } = parseSize(size);
+
+    // For img2img (variation) mode, add input image and strength
+    if (type === 'variation' || type === 'edit') {
+      if (params.input_image_path) {
+        cmd.push('--init-img', params.input_image_path);
+
+        // Add strength parameter for variation mode
+        // Strength controls how much the original image is preserved
+        // Default: 0.75 (balanced variation)
+        const strength = params.strength !== undefined ? params.strength : 0.75;
+        cmd.push('--strength', String(strength));
+      }
+    }
 
     // Build CLI arguments
     // Note: Argument format depends on SD-CPP version and model type

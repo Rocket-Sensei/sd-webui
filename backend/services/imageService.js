@@ -78,6 +78,12 @@ export async function generateImageDirect(params, mode = 'generate') {
     formData.append('size', params.size || '512x512');
     formData.append('response_format', 'b64_json');
 
+    // Add strength parameter for variation mode (img2img)
+    // Controls how much the original image is preserved during variation
+    if (mode === 'variation' && params.strength !== undefined) {
+      formData.append('strength', String(params.strength));
+    }
+
     if (params.mask) {
       // Add mask - Node.js native FormData requires wrapping Buffer in Blob
       const maskBlob = new Blob([params.mask.buffer], { type: params.mask.mimetype || 'image/png' });
@@ -227,6 +233,12 @@ export async function generateImage(params, mode = 'generate') {
     formData.append('n', params.n || 1);
     formData.append('size', params.size || '512x512');
     formData.append('response_format', 'b64_json');
+
+    // Add strength parameter for variation mode (img2img)
+    // Controls how much the original image is preserved during variation
+    if (mode === 'variation' && params.strength !== undefined) {
+      formData.append('strength', String(params.strength));
+    }
 
     if (params.mask) {
       // Add mask - Node.js native FormData requires wrapping Buffer in Blob
