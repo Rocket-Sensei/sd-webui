@@ -4,12 +4,8 @@ import {
   Trash2,
   Download,
   Image as ImageIcon,
-  Eye,
   Calendar,
   Box,
-  ChevronLeft,
-  ChevronRight,
-  ChevronDown,
   Sparkles,
   X,
   Clock,
@@ -18,12 +14,15 @@ import {
   Cpu,
   RefreshCw,
   Terminal,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "./ui/dialog";
 import { Badge } from "./ui/badge";
 import { LogViewer } from "./LogViewer";
+import { LightboxWithImage, LightboxGalleryWithImages } from "@didik-mulyadi/react-modal-images";
 import { useGenerations } from "../hooks/useImageGeneration";
 import { toast } from "sonner";
 import { useWebSocket, WS_CHANNELS } from "../contexts/WebSocketContext";
@@ -128,12 +127,35 @@ const Thumbnail = memo(function Thumbnail({ generation, onViewLogs }) {
     );
   }
 
+  // For single images, use LightboxWithImage
+  // For multiple images, we need to fetch the full generation data first
+  // For now, we'll show the first image with a badge indicating count
   return (
-    <div className="relative">
-      <img src={src} alt={generation.prompt} className="w-full h-full object-cover" loading="lazy" />
-      {imageCount > 1 && (
-        <div className="absolute bottom-1 right-1 bg-black/70 text-white text-xs px-2 py-0.5 rounded-full">
-          {imageCount}
+    <div className="relative aspect-square w-full h-full">
+      {imageCount === 1 ? (
+        <LightboxWithImage
+          small={src}
+          large={src}
+          alt={generation.prompt || "Generated image"}
+          fileName={generation.prompt?.slice(0, 50) || "image"}
+          hideDownload={false}
+          hideZoom={false}
+          className="w-full h-full object-cover rounded-lg"
+        />
+      ) : (
+        <div className="relative w-full h-full">
+          <LightboxWithImage
+            small={src}
+            large={src}
+            alt={generation.prompt || "Generated image"}
+            fileName={generation.prompt?.slice(0, 50) || "image"}
+            hideDownload={false}
+            hideZoom={false}
+            className="w-full h-full object-cover rounded-lg"
+          />
+          <div className="absolute bottom-1 right-1 bg-black/70 text-white text-xs px-2 py-0.5 rounded-full pointer-events-none">
+            {imageCount}
+          </div>
         </div>
       )}
     </div>
@@ -151,7 +173,7 @@ const Thumbnail = memo(function Thumbnail({ generation, onViewLogs }) {
 export function UnifiedQueue({ onCreateMore }) {
   const { fetchGenerations, goToPage, nextPage, prevPage, isLoading, generations, pagination, currentPage } = useGenerations({ pageSize: 20 });
   const [selectedImage, setSelectedImage] = useState(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [galleryImages, setGalleryImages] = useState(null);
   const [showLogs, setShowLogs] = useState(false);
   const [failedLogsGeneration, setFailedLogsGeneration] = useState(null);
   const [isFailedLogsOpen, setIsFailedLogsOpen] = useState(false);
@@ -325,7 +347,7 @@ export function UnifiedQueue({ onCreateMore }) {
     }
   };
 
-  const handleViewImage = async (generation, imageIndex = 0) => {
+  const handleViewImage = async (generation) => {
     try {
       const response = await authenticatedFetch(`/api/generations/${generation.id}`);
       if (!response.ok) throw new Error("Failed to fetch generation");
@@ -337,18 +359,27 @@ export function UnifiedQueue({ onCreateMore }) {
         return;
       }
 
-      const image = fullGeneration.images[imageIndex];
+      // For multiple images, prepare gallery data for LightboxGalleryWithImages
+      if (fullGeneration.images.length > 1) {
+        const galleryData = fullGeneration.images.map(img => ({
+          id: img.id,
+          src: img.static_url || `/api/images/${img.id}`,
+          srcLarge: img.static_url || `/api/images/${img.id}`,
+          fileName: generation.prompt?.slice(0, 50) || "image",
+          alt: generation.prompt || "Generated image",
+        }));
+        setGalleryImages(galleryData);
+      } else {
+        // For single image, LightboxWithImage in the thumbnail handles it
+        setGalleryImages(null);
+      }
 
       setSelectedImage({
         ...generation,
         images: fullGeneration.images,
-        currentImageIndex: imageIndex,
-        // Use static_url directly, fallback to API endpoint if not available
-        imageUrl: image.static_url || `/api/images/${image.id}`,
-        width: image.width,
-        height: image.height
+        width: fullGeneration.images[0]?.width,
+        height: fullGeneration.images[0]?.height
       });
-      setIsDialogOpen(true);
     } catch (err) {
       toast.error("Failed to load image");
     }
@@ -394,32 +425,6 @@ export function UnifiedQueue({ onCreateMore }) {
     }
   };
 
-  const handlePreviousImage = () => {
-    if (selectedImage && selectedImage.currentImageIndex > 0) {
-      const newIndex = selectedImage.currentImageIndex - 1;
-      const image = selectedImage.images[newIndex];
-      setSelectedImage({
-        ...selectedImage,
-        currentImageIndex: newIndex,
-        // Use static_url directly, fallback to API endpoint if not available
-        imageUrl: image.static_url || `/api/images/${image.id}`
-      });
-    }
-  };
-
-  const handleNextImage = () => {
-    if (selectedImage && selectedImage.currentImageIndex < selectedImage.images.length - 1) {
-      const newIndex = selectedImage.currentImageIndex + 1;
-      const image = selectedImage.images[newIndex];
-      setSelectedImage({
-        ...selectedImage,
-        currentImageIndex: newIndex,
-        // Use static_url directly, fallback to API endpoint if not available
-        imageUrl: image.static_url || `/api/images/${image.id}`
-      });
-    }
-  };
-
   const handleViewFailedLogs = (generation) => {
     setFailedLogsGeneration(generation);
     setIsFailedLogsOpen(true);
@@ -451,27 +456,17 @@ export function UnifiedQueue({ onCreateMore }) {
 
           return (
             <Card key={generation.id} className="overflow-hidden group">
-              <div
-                className="relative aspect-square cursor-pointer"
-                onClick={() => {
-                  if (generation.status === GENERATION_STATUS.COMPLETED) {
-                    handleViewImage(generation, 0);
-                  }
-                }}
-              >
+              <div className="relative aspect-square">
                 <Thumbnail generation={generation} onViewLogs={handleViewFailedLogs} />
-                {generation.status === GENERATION_STATUS.COMPLETED && (
+                {generation.status === GENERATION_STATUS.COMPLETED && generation.image_count > 1 && (
                   <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                     <Button
                       variant="secondary"
                       size="icon"
                       className="opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleViewImage(generation, 0);
-                      }}
+                      onClick={() => handleViewImage(generation)}
                     >
-                      <Eye className="h-4 w-4" />
+                      <ImageIcon className="h-4 w-4" />
                     </Button>
                   </div>
                 )}
@@ -616,71 +611,49 @@ export function UnifiedQueue({ onCreateMore }) {
         </div>
       )}
 
-      {/* Image Preview Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={(open) => { setIsDialogOpen(open); if (!open) setShowLogs(false); }}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setShowLogs(!showLogs)}
-                className={showLogs ? "bg-blue-50 border-blue-200" : ""}
-                title={showLogs ? "Hide Logs" : "View Logs"}
-              >
-                <Terminal className="h-4 w-4" />
-              </Button>
-              <DialogTitle className="truncate">{selectedImage?.prompt}</DialogTitle>
-            </div>
-            <DialogDescription>
-              {getModelName(selectedImage?.model)} • {selectedImage?.size} • {selectedImage?.width}x{selectedImage?.height} • Seed: {selectedImage?.seed ? Math.floor(Number(selectedImage.seed)) : "Random"}
-              {selectedImage?.images && selectedImage.images.length > 1 && (
-                <span className="ml-2">• Image {selectedImage.currentImageIndex + 1} of {selectedImage.images.length}</span>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {/* Image section - hide when logs are shown */}
-            {!showLogs && selectedImage?.imageUrl && (
-              <div className="relative">
-                <img
-                  src={selectedImage.imageUrl}
-                  alt={selectedImage.prompt}
-                  className="w-full rounded-lg"
-                />
-                {selectedImage.images && selectedImage.images.length > 1 && (
-                  <>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="absolute left-2 top-1/2 -translate-y-1/2"
-                      onClick={handlePreviousImage}
-                      disabled={selectedImage.currentImageIndex === 0}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="absolute right-2 top-1/2 -translate-y-1/2"
-                      onClick={handleNextImage}
-                      disabled={selectedImage.currentImageIndex === selectedImage.images.length - 1}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </>
+      {/* Gallery View Dialog for Multiple Images */}
+      {galleryImages && selectedImage && (
+        <Dialog open={!!galleryImages} onOpenChange={(open) => { if (!open) setGalleryImages(null); }}>
+          <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowLogs(!showLogs)}
+                  className={showLogs ? "bg-blue-50 border-blue-200" : ""}
+                  title={showLogs ? "Hide Logs" : "View Logs"}
+                >
+                  <Terminal className="h-4 w-4" />
+                </Button>
+                <DialogTitle className="truncate">{selectedImage?.prompt}</DialogTitle>
+              </div>
+              <DialogDescription>
+                {getModelName(selectedImage?.model)} • {selectedImage?.size} • {selectedImage?.width}x{selectedImage?.height} • Seed: {selectedImage?.seed ? Math.floor(Number(selectedImage.seed)) : "Random"}
+                {selectedImage?.images && (
+                  <span className="ml-2">• {selectedImage.images.length} image{selectedImage.images.length > 1 ? 's' : ''}</span>
                 )}
-              </div>
-            )}
-            {/* Log viewer - show when logs are enabled */}
-            {showLogs && selectedImage?.id && (
-              <div className="h-[500px]">
-                <LogViewer generationId={selectedImage.id} />
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              {/* Gallery section - hide when logs are shown */}
+              {!showLogs && galleryImages && (
+                <LightboxGalleryWithImages
+                  fixedWidth="200px"
+                  maxWidthLightBox="80%"
+                  images={galleryImages}
+                />
+              )}
+              {/* Log viewer - show when logs are enabled */}
+              {showLogs && selectedImage?.id && (
+                <div className="h-[500px]">
+                  <LogViewer generationId={selectedImage.id} />
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Failed Generation Logs Dialog */}
       <Dialog open={isFailedLogsOpen} onOpenChange={(open) => { setIsFailedLogsOpen(open); if (!open) setFailedLogsGeneration(null); }}>
