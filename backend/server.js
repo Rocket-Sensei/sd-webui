@@ -29,7 +29,9 @@ import {
   GenerationStatus,
   deleteGeneration,
   getGenerationsCount,
-  failOldQueuedGenerations
+  failOldQueuedGenerations,
+  deleteAllGenerations,
+  cancelAllGenerations
 } from './db/queries.js';
 import { startQueueProcessor } from './services/queueProcessor.js';
 
@@ -312,6 +314,22 @@ app.delete('/api/generations/:id', authenticateRequest, async (req, res) => {
   }
 });
 
+// Delete all generations (must be before /:id route)
+app.delete('/api/generations', authenticateRequest, async (req, res) => {
+  try {
+    const deleteFiles = req.query.delete_files === 'true';
+    const result = await deleteAllGenerations(deleteFiles);
+    res.json({
+      success: true,
+      count: result.count,
+      filesDeleted: result.filesDeleted
+    });
+  } catch (error) {
+    logger.error({ error }, 'Error deleting all generations');
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get logs for a specific generation
 app.get('/api/generations/:id/logs', authenticateRequest, async (req, res) => {
   try {
@@ -524,6 +542,20 @@ app.delete('/api/queue/:id', authenticateRequest, async (req, res) => {
     res.json({ success: true, job });
   } catch (error) {
     logger.error({ error }, 'Error cancelling job');
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cancel all jobs (pending and processing)
+app.post('/api/queue/cancel-all', authenticateRequest, async (req, res) => {
+  try {
+    const count = cancelAllGenerations();
+    res.json({
+      success: true,
+      cancelled: count
+    });
+  } catch (error) {
+    logger.error({ error }, 'Error cancelling all jobs');
     res.status(500).json({ error: error.message });
   }
 });

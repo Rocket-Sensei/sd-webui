@@ -4,6 +4,9 @@ import { UnifiedQueue } from "./UnifiedQueue";
 import { Button } from "./ui/button";
 import { Sparkles, ChevronDown } from "lucide-react";
 
+// Default editing model
+const DEFAULT_EDIT_MODEL = "qwen-image-edit";
+
 const STORAGE_KEY = "studio-form-collapsed";
 
 /**
@@ -28,6 +31,9 @@ export function Studio({ isFormCollapsed: externalIsCollapsed, onToggleForm, onC
 
   // Settings from "Create More" button click
   const [createMoreSettings, setCreateMoreSettings] = useState(null);
+
+  // State for edit image mode
+  const [editImageSettings, setEditImageSettings] = useState(null);
 
   // Form collapse state with localStorage persistence
   // Use external state if provided, otherwise use internal state
@@ -62,12 +68,39 @@ export function Studio({ isFormCollapsed: externalIsCollapsed, onToggleForm, onC
   // Sets the selected model and applies settings from the generation
   const handleCreateMore = useCallback((generation) => {
     setCreateMoreSettings(generation);
+    setEditImageSettings(null); // Clear edit settings when creating more
     if (generation.model) {
       setSelectedModels([generation.model]);
     }
     // Expand form when creating more
     const newValue = false;
     setFormCollapsed(newValue);
+  }, [setFormCollapsed]);
+
+  // Handle "Edit Image" from UnifiedQueue
+  // Sets the image for editing, switches to imgedit mode, and sets default edit model
+  const handleEditImage = useCallback((imageFile, generation) => {
+    // Create a temporary object URL for preview
+    const imageUrl = URL.createObjectURL(imageFile);
+
+    // Set up edit settings with the image
+    setEditImageSettings({
+      imageFile,
+      imageUrl,
+      type: 'edit',
+      // Preserve prompt if available
+      prompt: generation.prompt || '',
+      // Clear other settings for a fresh edit
+      negative_prompt: '',
+      size: generation.size || '1024x1024',
+    });
+    setCreateMoreSettings(null); // Clear create more settings when editing
+
+    // Set the default editing model
+    setSelectedModels([DEFAULT_EDIT_MODEL]);
+
+    // Expand form when editing
+    setFormCollapsed(false);
   }, [setFormCollapsed]);
 
   // Handle generation complete
@@ -102,9 +135,10 @@ export function Studio({ isFormCollapsed: externalIsCollapsed, onToggleForm, onC
     setSelectedModels(models);
   }, []);
 
-  // Clear createMoreSettings after it has been applied
+  // Clear createMoreSettings and editImageSettings after they have been applied
   const handleSettingsApplied = useCallback(() => {
     setCreateMoreSettings(null);
+    setEditImageSettings(null);
   }, []);
 
   return (
@@ -118,6 +152,7 @@ export function Studio({ isFormCollapsed: externalIsCollapsed, onToggleForm, onC
               selectedModels={selectedModels}
               onModelsChange={handleModelsChange}
               settings={createMoreSettings}
+              editImageSettings={editImageSettings}
               onGenerated={(...args) => {
                 handleGenerated(...args);
                 handleSettingsApplied();
@@ -128,7 +163,7 @@ export function Studio({ isFormCollapsed: externalIsCollapsed, onToggleForm, onC
 
         {/* Right area - UnifiedQueue Gallery */}
         <div className={isFormCollapsed ? "lg:col-span-3" : "lg:col-span-2"}>
-          <UnifiedQueue onCreateMore={handleCreateMore} />
+          <UnifiedQueue onCreateMore={handleCreateMore} onEditImage={handleEditImage} />
         </div>
       </div>
 

@@ -86,7 +86,9 @@ export function initializeDatabase() {
       input_image_mime_type TEXT,
       mask_image_path TEXT,
       mask_image_mime_type TEXT,
-      strength REAL DEFAULT 0.75
+      strength REAL DEFAULT 0.75,
+      model_loading_time_ms INTEGER,
+      generation_time_ms INTEGER
     )
   `);
 
@@ -319,7 +321,6 @@ export function clearDatabase() {
   database.prepare('DELETE FROM model_downloads').run();
   database.prepare('DELETE FROM generated_images').run();
   database.prepare('DELETE FROM generations').run();
-  database.prepare('DELETE FROM queue').run();
   database.prepare('DELETE FROM model_processes').run();
   database.prepare('DELETE FROM models').run();
 

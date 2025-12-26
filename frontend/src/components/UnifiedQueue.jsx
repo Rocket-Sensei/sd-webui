@@ -16,6 +16,8 @@ import {
   Terminal,
   ChevronLeft,
   ChevronRight,
+  Edit3,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent } from "./ui/card";
 import { Button } from "./ui/button";
@@ -170,7 +172,7 @@ const Thumbnail = memo(function Thumbnail({ generation, onViewLogs }) {
   );
 });
 
-export function UnifiedQueue({ onCreateMore }) {
+export function UnifiedQueue({ onCreateMore, onEditImage }) {
   const { fetchGenerations, goToPage, nextPage, prevPage, isLoading, generations, pagination, currentPage } = useGenerations({ pageSize: 20 });
   const [selectedImage, setSelectedImage] = useState(null);
   const [galleryImages, setGalleryImages] = useState(null);
@@ -178,6 +180,9 @@ export function UnifiedQueue({ onCreateMore }) {
   const [failedLogsGeneration, setFailedLogsGeneration] = useState(null);
   const [isFailedLogsOpen, setIsFailedLogsOpen] = useState(false);
   const [models, setModels] = useState({});
+  const [isDeleteAllOpen, setIsDeleteAllOpen] = useState(false);
+  const [isCancelAllOpen, setIsCancelAllOpen] = useState(false);
+  const [deleteFiles, setDeleteFiles] = useState(false);
 
   // Use a ref to track fetchGenerations so the WebSocket onMessage callback doesn't change
   const fetchGenerationsRef = useRef(() => fetchGenerations(currentPage));
@@ -434,6 +439,95 @@ export function UnifiedQueue({ onCreateMore }) {
     setIsFailedLogsOpen(true);
   };
 
+  const handleDeleteAll = async () => {
+    try {
+      const url = deleteFiles ? '/api/generations?delete_files=true' : '/api/generations';
+      const response = await authenticatedFetch(url, {
+        method: "DELETE",
+      });
+      if (response.ok) {
+        const data = await response.json();
+        toast.success(`Deleted ${data.count} generation${data.count !== 1 ? 's' : ''}${deleteFiles && data.filesDeleted > 0 ? ` and ${data.filesDeleted} file${data.filesDeleted !== 1 ? 's' : ''}` : ''}`);
+        fetchGenerations();
+      } else {
+        throw new Error("Failed to delete all generations");
+      }
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setIsDeleteAllOpen(false);
+      setDeleteFiles(false);
+    }
+  };
+
+  const handleCancelAll = async () => {
+    try {
+      const response = await authenticatedFetch('/api/queue/cancel-all', {
+        method: "POST",
+      });
+      if (response.ok) {
+        const data = await response.json();
+        toast.success(`Cancelled ${data.cancelled} job${data.cancelled !== 1 ? 's' : ''}`);
+        fetchGenerations();
+      } else {
+        throw new Error("Failed to cancel all jobs");
+      }
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setIsCancelAllOpen(false);
+    }
+  };
+
+  const handleEditImage = async (generation) => {
+    try {
+      // Get the first image URL from the generation
+      let imageUrl = generation.first_image_url;
+
+      // If no first_image_url, try to fetch the full generation data
+      if (!imageUrl) {
+        const response = await authenticatedFetch(`/api/generations/${generation.id}`);
+        if (!response.ok) {
+          toast.error("Failed to fetch generation");
+          return;
+        }
+        const fullGeneration = await response.json();
+        if (!fullGeneration.images || fullGeneration.images.length === 0) {
+          toast.error("No images found");
+          return;
+        }
+        imageUrl = fullGeneration.images[0].static_url || `/api/images/${fullGeneration.images[0].id}`;
+      }
+
+      if (!imageUrl) {
+        toast.error("No image URL found");
+        return;
+      }
+
+      // Fetch the image data
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) {
+        throw new Error("Failed to fetch image");
+      }
+      const blob = await imageResponse.blob();
+
+      // Get filename from URL
+      const urlParts = imageUrl.split('/');
+      const filename = urlParts[urlParts.length - 1] || 'image.png';
+
+      // Create a File object
+      const file = new File([blob], filename, { type: blob.type || 'image/png' });
+
+      // Call the onEditImage callback with the file and generation data
+      if (onEditImage) {
+        onEditImage(file, generation);
+      }
+    } catch (err) {
+      console.error('Error loading image for editing:', err);
+      toast.error("Failed to load image for editing");
+    }
+  };
+
   if (generations.length === 0 && !isLoading) {
     return (
       <Card>
@@ -450,8 +544,41 @@ export function UnifiedQueue({ onCreateMore }) {
     );
   }
 
+  // Compute if there are any pending or processing generations
+  const hasPendingOrProcessing = generations.some(g =>
+    g.status === GENERATION_STATUS.PENDING || g.status === GENERATION_STATUS.PROCESSING
+  );
+
   return (
     <>
+      {/* Toolbar with Delete All and Cancel All buttons */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            {pagination.total} total generation{pagination.total !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setIsCancelAllOpen(true)}
+            disabled={!hasPendingOrProcessing}
+          >
+            <X className="h-4 w-4 mr-1" />
+            Cancel All
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsDeleteAllOpen(true)}
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            Delete All
+          </Button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {generations.map((generation) => {
           const config = getStatusConfig(generation.status);
@@ -477,10 +604,7 @@ export function UnifiedQueue({ onCreateMore }) {
               </div>
               <CardContent className="p-3">
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <p className="text-sm line-clamp-2 flex-1">{generation.prompt || "No prompt"}</p>
-                  <Badge variant={config.color} className="flex-shrink-0">
-                    <StatusIcon className={`h-3 w-3 ${config.animate ? "animate-spin" : ""}`} />
-                  </Badge>
+                  <p className="text-sm line-clamp-2 flex-1 pr-1">{generation.prompt || "No prompt"}</p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                   <Calendar className="h-3 w-3" />
@@ -490,11 +614,21 @@ export function UnifiedQueue({ onCreateMore }) {
                   <Cpu className="h-3 w-3" />
                   <span>{getModelName(generation.model)}</span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
                   <Box className="h-3 w-3" />
                   <span>{generation.size || "512x512"}</span>
                   {generation.seed && <span>• Seed: {Math.floor(Number(generation.seed))}</span>}
                 </div>
+                {(generation.model_loading_time_ms !== undefined || generation.generation_time_ms !== undefined) && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+                    <Clock className="h-3 w-3" />
+                    <span>
+                      {generation.model_loading_time_ms !== undefined && `Model: ${(generation.model_loading_time_ms / 1000).toFixed(1)}s`}
+                      {generation.model_loading_time_ms !== undefined && generation.generation_time_ms !== undefined && ' • '}
+                      {generation.generation_time_ms !== undefined && `Gen: ${(generation.generation_time_ms / 1000).toFixed(1)}s`}
+                    </span>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   {canCancel ? (
                     // Cancel button for pending/processing
@@ -508,15 +642,14 @@ export function UnifiedQueue({ onCreateMore }) {
                       Cancel
                     </Button>
                   ) : generation.status === GENERATION_STATUS.COMPLETED ? (
-                    // Download button for completed
+                    // Download button for completed (icon only for compact view)
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="flex-1"
+                      size="icon"
+                      className="flex-shrink-0"
                       onClick={() => handleDownload(generation.id)}
                     >
-                      <Download className="h-3 w-3 mr-1" />
-                      Download
+                      <Download className="h-3 w-3" />
                     </Button>
                   ) : (
                     // Retry button for failed/cancelled
@@ -539,6 +672,17 @@ export function UnifiedQueue({ onCreateMore }) {
                     >
                       <Sparkles className="h-3 w-3 mr-1" />
                       More
+                    </Button>
+                  )}
+                  {generation.status === GENERATION_STATUS.COMPLETED && onEditImage && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handleEditImage(generation)}
+                    >
+                      <Edit3 className="h-3 w-3 mr-1" />
+                      Edit
                     </Button>
                   )}
                   {generation.status !== GENERATION_STATUS.PENDING && generation.status !== GENERATION_STATUS.PROCESSING && (
@@ -678,6 +822,78 @@ export function UnifiedQueue({ onCreateMore }) {
             <div className="h-[500px]">
               <LogViewer generationId={failedLogsGeneration?.id} />
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete All Confirmation Dialog */}
+      <Dialog open={isDeleteAllOpen} onOpenChange={(open) => { setIsDeleteAllOpen(open); if (!open) setDeleteFiles(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Delete All Generations
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete all generations? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={deleteFiles}
+                onChange={(e) => setDeleteFiles(e.target.checked)}
+                className="h-4 w-4"
+              />
+              <span className="text-sm">Also delete image files from disk</span>
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsDeleteAllOpen(false);
+                  setDeleteFiles(false);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteAll}
+              >
+                Delete All
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel All Confirmation Dialog */}
+      <Dialog open={isCancelAllOpen} onOpenChange={setIsCancelAllOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Cancel All Jobs
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to cancel all pending and processing jobs?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsCancelAllOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCancelAll}
+            >
+              Cancel All Jobs
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

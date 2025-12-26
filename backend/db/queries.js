@@ -289,6 +289,16 @@ export function updateGenerationStatus(id, status, additionalData = {}) {
     params.push(additionalData.error);
   }
 
+  if (additionalData.model_loading_time_ms !== undefined) {
+    query += ', model_loading_time_ms = ?';
+    params.push(additionalData.model_loading_time_ms);
+  }
+
+  if (additionalData.generation_time_ms !== undefined) {
+    query += ', generation_time_ms = ?';
+    params.push(additionalData.generation_time_ms);
+  }
+
   query += ' WHERE id = ?';
   params.push(id);
 
@@ -402,6 +412,63 @@ export function getGenerationsByStatus(status, limit = 50) {
     LIMIT ?
   `);
   return stmt.all(status, limit);
+}
+
+/**
+ * Delete all generations (with optional file deletion)
+ * @param {boolean} deleteFiles - If true, also delete image files from disk
+ * @returns {Promise<{count: number, filesDeleted: number}>}
+ */
+export async function deleteAllGenerations(deleteFiles = false) {
+  const db = getDatabase();
+  const imagesDir = getImagesDir();
+
+  let filesDeleted = 0;
+
+  // If deleteFiles is true, delete all image files from disk
+  if (deleteFiles) {
+    const stmt = db.prepare('SELECT file_path FROM generated_images');
+    const images = stmt.all();
+
+    for (const image of images) {
+      try {
+        await unlink(image.file_path);
+        filesDeleted++;
+      } catch (e) {
+        logger.warn({ error: e, filePath: image.file_path }, 'Failed to delete image file');
+      }
+    }
+  }
+
+  // Delete all generations (cascade will handle generated_images)
+  const stmt = db.prepare('DELETE FROM generations');
+  const result = stmt.run();
+
+  return {
+    count: result.changes,
+    filesDeleted
+  };
+}
+
+/**
+ * Cancel all pending and processing generations
+ * @returns {number} Number of generations cancelled
+ */
+export function cancelAllGenerations() {
+  const db = getDatabase();
+
+  const stmt = db.prepare(`
+    UPDATE generations
+    SET status = ?,
+        completed_at = ?,
+        updated_at = ?
+    WHERE status IN (?, ?)
+  `);
+
+  const now = Date.now();
+  const result = stmt.run(GenerationStatus.CANCELLED, now, now, GenerationStatus.PENDING, GenerationStatus.PROCESSING);
+
+  return result.changes;
 }
 
 /**

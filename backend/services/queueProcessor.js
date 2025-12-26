@@ -12,6 +12,7 @@ const logger = createLogger('queueProcessor');
 let isProcessing = false;
 let currentJob = null;
 let currentModelId = null; // Track the model being used for the current job
+let currentModelLoadingStartTime = null; // Track when model loading started for current job
 let pollInterval = null;
 
 // Initialize model manager singleton
@@ -137,7 +138,9 @@ async function processQueue() {
   isProcessing = true;
   currentJob = job;
   currentModelId = null; // Will be set when model is determined
+  currentModelLoadingStartTime = null; // Reset model loading start time
   const startTime = Date.now();
+  let modelLoadingTimeMs = 0; // Will be set when model is prepared
 
   // Create generation-specific logger for this job
   const genLogger = createGenerationLogger(job.id, 'queueProcessor');
@@ -175,15 +178,20 @@ async function processQueue() {
     // Prepare model based on execution mode
     if (modelConfig.exec_mode === ExecMode.SERVER) {
       // For server mode, stop conflicting servers and start the required one
-      await prepareModelForJob(modelId, job.id);
+      const prepareResult = await prepareModelForJob(modelId, job.id);
+      modelLoadingTimeMs = prepareResult.loadingTimeMs;
     } else if (modelConfig.exec_mode === ExecMode.CLI) {
       // For CLI mode, stop any running servers (they're not needed)
       await stopAllServerModels();
+      // CLI mode doesn't have model loading overhead (model loads per generation)
+      modelLoadingTimeMs = 0;
       logger.info({ modelId }, 'Model uses CLI mode');
       genLogger.info({ modelId }, 'Model uses CLI mode');
     } else if (modelConfig.exec_mode === ExecMode.API) {
       // For API mode, stop any running servers (external API is used)
       await stopAllServerModels();
+      // API mode uses external service, no local model loading
+      modelLoadingTimeMs = 0;
       logger.info({ modelId }, 'Model uses external API mode');
       genLogger.info({ modelId }, 'Model uses external API mode');
     }
@@ -205,12 +213,15 @@ async function processQueue() {
     }
 
     // Update status to completed (generation_id is now the same as job.id)
-    updateGenerationStatus(job.id, GenerationStatus.COMPLETED);
-
-    // Calculate generation time
     const endTime = Date.now();
-    const generationTimeMs = endTime - startTime;
+    const totalTimeMs = endTime - startTime;
+    const generationTimeMs = totalTimeMs - modelLoadingTimeMs;
     const generationTimeSec = (generationTimeMs / 1000).toFixed(2);
+
+    updateGenerationStatus(job.id, GenerationStatus.COMPLETED, {
+      model_loading_time_ms: modelLoadingTimeMs,
+      generation_time_ms: generationTimeMs,
+    });
 
     // Broadcast completion events
     broadcastQueueEvent({ ...job, status: GenerationStatus.COMPLETED }, 'job_completed');
@@ -226,43 +237,55 @@ async function processQueue() {
     logger.info({
       jobId: job.id,
       imageCount: result?.imageCount || 0,
+      modelLoadingTimeMs,
       generationTimeSec,
       generationTimeMs,
+      totalTimeMs,
     }, 'Job completed successfully');
     genLogger.info({
       imageCount: result?.imageCount || 0,
+      modelLoadingTimeMs,
       generationTimeSec,
       generationTimeMs,
+      totalTimeMs,
       result: 'completed',
     }, 'Generation completed successfully');
   } catch (error) {
-    // Calculate generation time even for failures
+    // Calculate timing even for failures
     const endTime = Date.now();
-    const generationTimeMs = endTime - startTime;
+    const totalTimeMs = endTime - startTime;
+    const generationTimeMs = totalTimeMs - modelLoadingTimeMs;
     const generationTimeSec = (generationTimeMs / 1000).toFixed(2);
 
     logger.error({
       error: error.message,
       jobId: job.id,
+      modelLoadingTimeMs,
       generationTimeSec,
       generationTimeMs,
+      totalTimeMs,
     }, 'Job failed');
     genLogger.error({
       error: error.message,
       stack: error.stack,
+      modelLoadingTimeMs,
       generationTimeSec,
       generationTimeMs,
+      totalTimeMs,
       result: 'failed',
     }, 'Generation failed');
 
     updateGenerationStatus(job.id, GenerationStatus.FAILED, {
       error: error.message,
+      model_loading_time_ms: modelLoadingTimeMs,
+      generation_time_ms: generationTimeMs,
     });
     broadcastQueueEvent({ ...job, status: GenerationStatus.FAILED, error: error.message }, 'job_failed');
   } finally {
     isProcessing = false;
     currentJob = null;
     currentModelId = null;
+    currentModelLoadingStartTime = null;
   }
 }
 
@@ -295,13 +318,13 @@ async function stopAllServerModels() {
  * Prepare a model for a job - stop conflicting servers and start the required one
  * @param {string} modelId - Model identifier to prepare
  * @param {string} jobId - Job ID for progress updates
- * @returns {Promise<void>}
+ * @returns {Promise<{wasAlreadyRunning: boolean, loadingTimeMs: number}>} Object indicating if model was already running and loading time
  */
 async function prepareModelForJob(modelId, jobId) {
   // Check if model is already running
   if (modelManager.isModelRunning(modelId)) {
     logger.info({ modelId }, 'Model is already running');
-    return;
+    return { wasAlreadyRunning: true, loadingTimeMs: 0 };
   }
 
   // Stop any other running server models (only one server at a time)
@@ -309,6 +332,9 @@ async function prepareModelForJob(modelId, jobId) {
 
   logger.info({ modelId }, 'Model not running, starting...');
   updateGenerationProgress(jobId, 0.05, `Starting model: ${modelId}...`);
+
+  // Record model loading start time
+  currentModelLoadingStartTime = Date.now();
 
   try {
     // Start the model
@@ -325,8 +351,9 @@ async function prepareModelForJob(modelId, jobId) {
     while (Date.now() - startTime < maxWait) {
       const status = modelManager.getModelStatus(modelId);
       if (status.status === ModelStatus.RUNNING) {
-        logger.info({ modelId, port: status.port }, 'Model is now running');
-        return;
+        const loadingTimeMs = Date.now() - currentModelLoadingStartTime;
+        logger.info({ modelId, port: status.port, loadingTimeMs }, 'Model is now running');
+        return { wasAlreadyRunning: false, loadingTimeMs };
       }
       if (status.status === ModelStatus.ERROR) {
         throw new Error(`Model ${modelId} failed to start: ${status.error || 'Unknown error'}`);

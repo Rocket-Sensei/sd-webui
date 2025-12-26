@@ -33,29 +33,25 @@ import { createGeneration, createGeneratedImage, getAllGenerations, getGeneratio
 const API_URL = `http://${SERVER_HOST}:${SERVER_PORT}`;
 
 describe('Image Serving and Pagination', () => {
-  beforeEach(async () => {
+  beforeAll(async () => {
     // Initialize database (creates if not exists)
     initializeDatabase();
-
-    // Clear any existing data from previous test runs
-    clearDatabase();
 
     // Start test server (will also use the test database path via env var)
     await startServer();
   });
 
-  afterEach(async () => {
-    // Stop test server (this will close the database connection via SIGTERM)
+  afterAll(async () => {
+    // Stop test server
     await stopServer();
 
-    // Close database connection in this module
+    // Close database connection
     closeDatabase();
+  });
 
-    // Clean up test image files from test directories
-    const imagesDir = process.env.IMAGES_DIR || path.join(__dirname, '..', 'backend', 'data', 'images');
-    const inputDir = process.env.INPUT_DIR || path.join(__dirname, '..', 'backend', 'data', 'input');
-    cleanupDir(imagesDir);
-    cleanupDir(inputDir);
+  beforeEach(async () => {
+    // Clear any existing data from previous test runs
+    clearDatabase();
   });
 
   afterAll(async () => {

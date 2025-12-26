@@ -80,11 +80,13 @@ const RESIZE_MODES = [
  * @param {string[]} props.selectedModels - Array of selected model IDs
  * @param {function} props.onModelsChange - Callback when model selection changes
  * @param {Object} props.settings - Settings from "Create More" button
+ * @param {Object} props.editImageSettings - Settings from "Edit Image" button with image file
  * @param {function} props.onGenerated - Callback when generation completes
  */
-export function GeneratePanel({ selectedModels = [], onModelsChange, settings, onGenerated }) {
+export function GeneratePanel({ selectedModels = [], onModelsChange, settings, editImageSettings, onGenerated }) {
   const { generateQueued, isLoading } = useImageGeneration();
   const fileInputRef = useRef(null);
+  const editImageUrlRef = useRef(null); // Track object URL for cleanup
 
   // Mode selection
   const [mode, setMode] = useState("txt2img");
@@ -218,6 +220,52 @@ export function GeneratePanel({ selectedModels = [], onModelsChange, settings, o
       }
     }
   }, [settings]);
+
+  // Apply editImageSettings when provided (from "Edit Image" button)
+  useEffect(() => {
+    if (editImageSettings) {
+      // Set mode to imgedit
+      setMode('imgedit');
+
+      // Apply prompt if available
+      if (editImageSettings.prompt !== undefined) {
+        setPrompt(editImageSettings.prompt);
+      }
+      if (editImageSettings.negative_prompt !== undefined) {
+        setNegativePrompt(editImageSettings.negative_prompt);
+      }
+
+      // Set size if available
+      if (editImageSettings.size) {
+        const [w, h] = editImageSettings.size.split('x').map(Number);
+        if (w && h) {
+          setWidth(w);
+          setHeight(h);
+        }
+      }
+
+      // Set the source image from editImageSettings
+      if (editImageSettings.imageFile && editImageSettings.imageUrl) {
+        // Clean up previous object URL if it exists
+        if (editImageUrlRef.current && editImageUrlRef.current !== editImageSettings.imageUrl) {
+          URL.revokeObjectURL(editImageUrlRef.current);
+        }
+        editImageUrlRef.current = editImageSettings.imageUrl;
+
+        setSourceImage(editImageSettings.imageFile);
+        setSourceImagePreview(editImageSettings.imageUrl);
+        setUpscaleResult(null);
+      }
+
+      // Cleanup function for when editImageSettings is cleared
+      return () => {
+        if (editImageUrlRef.current) {
+          URL.revokeObjectURL(editImageUrlRef.current);
+          editImageUrlRef.current = null;
+        }
+      };
+    }
+  }, [editImageSettings]);
 
   const getApiMode = useCallback((modeValue) => {
     if (modeValue === "imgedit") return "edit";
