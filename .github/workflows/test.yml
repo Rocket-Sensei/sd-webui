@@ -26,7 +26,7 @@ jobs:
         run: npm ci
 
       - name: Run unit tests
-        run: npm test -- tests/processTracker.test.js tests/imageGeneration.test.js --run
+        run: npm test -- tests/processTracker.test.js tests/imageGeneration.test.js
 
       - name: Build frontend
         run: npm run build
